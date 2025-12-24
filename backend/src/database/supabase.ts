@@ -218,4 +218,59 @@ export class SupabaseClient {
     if (error) throw error;
     return data;
   }
+
+  // ============================================
+  // CUSTOM BLOCK STATUSES
+  // ============================================
+
+  /**
+   * Save or update custom block status
+   */
+  static async upsertCustomBlockStatus(data: {
+    project_id: number;
+    block_id: string;
+    block_name: string;
+    block_type: string;
+    status_analysis: string;
+  }) {
+    const { data: result, error } = await supabase
+      .from('custom_block_statuses')
+      .upsert(
+        {
+          ...data,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'project_id,block_id' }
+      )
+      .select();
+
+    if (error) throw error;
+    return result;
+  }
+
+  /**
+   * Get custom block statuses for a project
+   */
+  static async getCustomBlockStatuses(projectId: number) {
+    const { data, error } = await supabase
+      .from('custom_block_statuses')
+      .select('*')
+      .eq('project_id', projectId);
+
+    if (error) throw error;
+    return data || [];
+  }
+
+  /**
+   * Delete custom block status
+   */
+  static async deleteCustomBlockStatus(projectId: number, blockId: string) {
+    const { error } = await supabase
+      .from('custom_block_statuses')
+      .delete()
+      .eq('project_id', projectId)
+      .eq('block_id', blockId);
+
+    if (error) throw error;
+  }
 }

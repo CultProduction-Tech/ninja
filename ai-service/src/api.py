@@ -80,6 +80,20 @@ class StageAnalysisRequest(BaseModel):
     currentValue: Optional[str] = None
 
 
+class BlockInfo(BaseModel):
+    name: str
+    type: str  # "standard", "custom_pre", "custom_post"
+    id: Optional[str] = None
+    currentStatus: Optional[str] = None
+
+
+class DynamicBlocksRequest(BaseModel):
+    projectId: int
+    projectName: str
+    blocks: List[BlockInfo]
+    conversation: str
+
+
 # Endpoints
 @app.get("/")
 async def root():
@@ -192,6 +206,33 @@ async def analyze_stage(request: StageAnalysisRequest):
 
     except Exception as e:
         logger.error(f"Error analyzing stage {request.stage}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/analyze/dynamic-blocks")
+async def analyze_dynamic_blocks(request: DynamicBlocksRequest):
+    """
+    🆕 NEW: Analyze dynamic blocks from Dashboard.
+    Only analyzes blocks that are active for this specific project.
+    Supports both standard and custom blocks.
+    """
+    try:
+        logger.info(f"Analyzing {len(request.blocks)} dynamic blocks for project {request.projectName}")
+
+        # Log blocks being analyzed
+        for block in request.blocks:
+            logger.info(f"  - {block.name} ({block.type})")
+
+        result = await status_analyzer.analyze_dynamic_blocks(
+            project_name=request.projectName,
+            blocks=request.blocks,
+            conversation=request.conversation
+        )
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error analyzing dynamic blocks: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -196,3 +196,130 @@ class StatusAnalyzer:
         response = await self.llm.ainvoke(messages)
 
         return response.content
+
+    async def analyze_dynamic_blocks(
+        self,
+        project_name: str,
+        blocks: List[Any],
+        conversation: str
+    ) -> Dict[str, str]:
+        """
+        🆕 NEW: Analyze dynamic blocks from Dashboard.
+        Only analyzes blocks that are active for this project.
+        Supports both standard and custom blocks.
+        """
+        results = {}
+
+        logger.info(f"Analyzing {len(blocks)} blocks for project '{project_name}'")
+
+        for block in blocks:
+            block_name = block.name if hasattr(block, 'name') else block.get('name')
+            block_type = block.type if hasattr(block, 'type') else block.get('type')
+            block_id = block.id if hasattr(block, 'id') else block.get('id')
+            current_status = block.currentStatus if hasattr(block, 'currentStatus') else block.get('currentStatus')
+
+            logger.info(f"Analyzing block: {block_name} ({block_type})")
+
+            # Create dynamic prompt for this block
+            if block_type == 'standard':
+                # Standard block - use existing logic
+                prompt = self._create_standard_block_prompt(block_name, current_status, conversation)
+            else:
+                # Custom block - create custom prompt
+                prompt = self._create_custom_block_prompt(block_name, current_status, conversation)
+
+            # Analyze
+            messages = [
+                SystemMessage(content="Ты — аналитик проектных статусов. Анализируй переписку и определяй текущий статус работы."),
+                HumanMessage(content=prompt)
+            ]
+
+            try:
+                response = await self.llm.ainvoke(messages)
+
+                # Use block ID for custom blocks, name for standard
+                result_key = block_id if block_id else block_name
+                results[result_key] = response.content
+
+                logger.info(f"✓ Analyzed {block_name}: {response.content[:100]}...")
+
+            except Exception as e:
+                logger.error(f"Error analyzing block {block_name}: {e}")
+                result_key = block_id if block_id else block_name
+                results[result_key] = f"Ошибка анализа: {str(e)}"
+
+        return results
+
+    def _create_standard_block_prompt(
+        self,
+        block_name: str,
+        current_status: Optional[str],
+        conversation: str
+    ) -> str:
+        """Create prompt for standard block analysis"""
+
+        # Map Dashboard block names to human-readable Russian names
+        block_names_ru = {
+            'documents': 'договор',
+            'storyboard': 'раскадровка',
+            'casting': 'кастинг',
+            'location': 'локации',
+            'props': 'реквизит',
+            'wardrobe': 'одежда/костюмы',
+            'editing': 'монтаж',
+            'voice': 'войсовер',
+            'music': 'музыка',
+            'color': 'цветокоррекция',
+            'photos': 'фотографии',
+            'cg': 'компьютерная графика',
+            'animatic': 'аниматик',
+            'modelling': '3D моделирование',
+            'styleshots': 'стайлшоты',
+            'animation': 'анимация'
+        }
+
+        block_name_ru = block_names_ru.get(block_name, block_name)
+
+        prompt = f"""Проанализируй переписку и определи текущий статус этапа "{block_name_ru}".
+
+Переписка:
+{conversation}
+
+Текущий статус: {current_status or 'не указан'}
+
+Твоя задача: написать КРАТКИЙ и ТОЧНЫЙ статус этого этапа на основе переписки.
+
+Формат ответа (1-3 предложения):
+- Что сейчас происходит на этом этапе
+- Что ждем от клиента (если ждем)
+- Когда планируется завершение (если упоминается)
+
+Если в переписке нет информации об этом этапе, напиши "информация отсутствует"."""
+
+        return prompt
+
+    def _create_custom_block_prompt(
+        self,
+        block_name: str,
+        current_status: Optional[str],
+        conversation: str
+    ) -> str:
+        """Create prompt for custom block analysis"""
+
+        prompt = f"""Проанализируй переписку и определи текущий статус задачи "{block_name}".
+
+Переписка:
+{conversation}
+
+Текущий статус: {current_status or 'не указан'}
+
+Твоя задача: написать КРАТКИЙ и ТОЧНЫЙ статус этой задачи на основе переписки.
+
+Формат ответа (1-3 предложения):
+- Что сейчас происходит с этой задачей
+- Что ждем от клиента/команды (если ждем)
+- Когда планируется завершение (если упоминается)
+
+Если в переписке нет информации об этой задаче, напиши "информация отсутствует"."""
+
+        return prompt

@@ -2,6 +2,7 @@ import { Telegraf, Context } from 'telegraf';
 import { logger } from '../utils/logger';
 import { AIServiceClient } from '../services/ai-client';
 import { SupabaseClient } from '../database/supabase';
+import { DashboardClient } from '../database/dashboard-supabase';
 import { runStatusUpdate } from '../workflows/orchestrator';
 
 /**
@@ -138,7 +139,7 @@ export class SmartBot {
         // Send each project as separate message
         for (let i = 0; i < projects.length; i++) {
           const project = projects[i];
-          const statusMessage = this.formatProjectStatus(project);
+          const statusMessage = await this.formatProjectStatusDynamic(project);
 
           // Check if message is too long and split if needed
           if (statusMessage.length <= 4000) {
@@ -266,7 +267,7 @@ export class SmartBot {
    */
   async notifyProducer(producerTgChatId: string, projectName: string, updates: string) {
     try {
-      const header = `📊 Обновление статуса проекта "${projectName}":\n\n`;
+      const header = `Статус на сегодня по проекту "${projectName}":\n\n`;
       const fullMessage = header + updates;
 
       // Telegram message limit is 4096 characters
@@ -282,7 +283,7 @@ export class SmartBot {
         for (let i = 0; i < parts.length; i++) {
           const partHeader = i === 0
             ? header
-            : `📊 Обновление статуса проекта "${projectName}" (часть ${i + 1}):\n\n`;
+            : `Статус на сегодня по проекту "${projectName}" (часть ${i + 1}):\n\n`;
 
           await this.bot.telegram.sendMessage(
             producerTgChatId,
@@ -303,7 +304,105 @@ export class SmartBot {
   }
 
   /**
-   * Format project status in structured way
+   * 🆕 Format project status dynamically from Dashboard blocks
+   */
+  private async formatProjectStatusDynamic(project: any): Promise<string> {
+    const noInfo = 'информация отсутствует';
+
+    try {
+      // Get active blocks from Dashboard
+      const activeBlocks = await DashboardClient.getActiveBlocks(project.project_name);
+
+      // Get custom block statuses from Status Ninja
+      const customStatuses = await SupabaseClient.getCustomBlockStatuses(project.project_id);
+
+      let msg = `Название проекта:\n${project.project_name}\n\n`;
+      msg += `Информация о статусе проекта в структурированном виде:\n`;
+      msg += `"${project.project_name}" - ежедневный статус\n\n`;
+
+      if (activeBlocks.length === 0) {
+        msg += `⚠️ Нет активных блоков для этого проекта\n`;
+        return msg;
+      }
+
+      // Emoji mapping for standard blocks
+      const blockEmojis: Record<string, string> = {
+        'documents': '📋',
+        'storyboard': '🎨',
+        'casting': '🎭',
+        'location': '📍',
+        'props': '🎪',
+        'wardrobe': '👕',
+        'editing': '✂️',
+        'voice': '🎤',
+        'music': '🎵',
+        'color': '🌈',
+        'photos': '📷',
+        'cg': '💫',
+        'animatic': '🎬',
+        'modelling': '🏗️',
+        'styleshots': '📸',
+        'animation': '🎞️'
+      };
+
+      // Format each active block
+      for (const block of activeBlocks) {
+        if (block.type === 'standard') {
+          // Standard block
+          const emoji = blockEmojis[block.name] || '▫️';
+          const blockNameRu = this.getStandardBlockNameRu(block.name);
+
+          msg += `${emoji} ${blockNameRu}\n`;
+          msg += `- ${block.currentStatus || noInfo}\n\n`;
+
+        } else {
+          // Custom block (pre/post)
+          const customStatus = customStatuses.find(cs => cs.block_id === block.id);
+          const status = customStatus?.status_analysis || block.currentStatus || noInfo;
+
+          msg += `⭐ ${block.name}\n`;
+          msg += `- ${status}\n\n`;
+        }
+      }
+
+      msg += `Все ли верно? Если какая-то информация неточная, пожалуйста, укажи, что нужно подправить`;
+
+      return msg;
+
+    } catch (error) {
+      logger.error(`Error formatting project status for ${project.project_name}:`, error);
+      return `Ошибка при получении статусов проекта ${project.project_name}`;
+    }
+  }
+
+  /**
+   * Get Russian name for standard block
+   */
+  private getStandardBlockNameRu(blockName: string): string {
+    const names: Record<string, string> = {
+      'documents': 'Документы',
+      'storyboard': 'Сториборд',
+      'casting': 'Кастинг',
+      'location': 'Локации / Декорации',
+      'props': 'Эскизы и реквизит',
+      'wardrobe': 'Костюм',
+      'editing': 'Монтаж',
+      'voice': 'Войсовер',
+      'music': 'Музыка',
+      'color': 'Цветокоррекция',
+      'photos': 'Фото',
+      'cg': 'CG',
+      'animatic': 'Аниматик',
+      'modelling': 'Моделирование',
+      'styleshots': 'Стайлшоты',
+      'animation': 'Анимация'
+    };
+
+    return names[blockName] || blockName;
+  }
+
+  /**
+   * Format project status in structured way (OLD - for fallback)
    */
   private formatProjectStatus(project: any): string {
     const noInfo = 'информация отсутствует';

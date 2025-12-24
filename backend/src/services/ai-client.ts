@@ -73,4 +73,28 @@ export class AIServiceClient {
       throw error;
     }
   }
+
+  /**
+   * 🆕 Analyze dynamic blocks from Dashboard
+   * Replaces analyzeProjectStatus with flexible block-based approach
+   */
+  static async analyzeDynamicBlocks(params: {
+    projectId: number;
+    projectName: string;
+    blocks: Array<{
+      name: string;
+      type: 'standard' | 'custom_pre' | 'custom_post';
+      id?: string;
+      currentStatus?: string;
+    }>;
+    conversation: string;
+  }) {
+    try {
+      const response = await axios.post(`${AI_SERVICE_URL}/analyze/dynamic-blocks`, params);
+      return response.data;
+    } catch (error) {
+      logger.error('Error calling AI service for dynamic blocks analysis:', error);
+      throw error;
+    }
+  }
 }
