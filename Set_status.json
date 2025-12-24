@@ -1,0 +1,170 @@
+{
+  "name": "Set_status",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "project_id",
+              "type": "number"
+            },
+            {
+              "name": "field_name"
+            },
+            {
+              "name": "new_value"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0634eaef-7ae3-45dd-94cd-f68c455de00f",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "projects",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "project_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.project_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "={{ $json.field_name }}",
+              "fieldValue": "={{ $json.new_value }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        0
+      ],
+      "id": "a1c0f9a5-c2f3-408c-a337-13d55db6563f",
+      "name": "Supabase",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b7dfb135-68a3-4409-9fad-7b3b17647cca",
+              "name": "result",
+              "value": "Данные обновлены",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        512,
+        -144
+      ],
+      "id": "3529efc4-e8f7-428e-9447-b6633ffbe700",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0ee01812-a0f9-4bc3-91c0-052c765f4b21",
+              "name": "result",
+              "value": "=Error: {{ $json.error }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        448,
+        112
+      ],
+      "id": "869301cf-08aa-4b5a-8dea-cf3bf47c10bc",
+      "name": "Edit Fields1"
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "project_id": 7,
+          "field_name": "editing_client",
+          "new_value": "Клиент ожидает от нас новый монтаж 4 августа"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "8f9b8513-2cb8-4e0c-a771-59b6bef2e722",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "eef5c58a94f0f097a8fba5e0fe9604c06cfc8c39bdf7bed68b76dba58813a6e0"
+  },
+  "id": "Tg5r9fsyj3O4QbS8",
+  "tags": []
+}

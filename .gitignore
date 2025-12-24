@@ -1,0 +1,36 @@
+# Environment
+.env
+.env.local
+.env.*.local
+.env.example
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Backend
+backend/node_modules/
+backend/dist/
+backend/package-lock.json
+
+# AI Service
+ai-service/__pycache__/
+ai-service/*.pyc
+ai-service/venv/
+ai-service/.pytest_cache/
+
+# Docker
+docker-compose.override.yml
+
+# Temporary
+tmp/
+temp/
+*.tmp

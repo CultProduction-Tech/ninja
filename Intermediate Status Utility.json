@@ -1,0 +1,449 @@
+{
+  "name": "Intermediate Status Utility",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -16
+      ],
+      "id": "7f3df78f-24be-4e63-ae31-1047f8c099a4",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8803c661-0e30-463a-ae13-e486cd98201c",
+              "name": "project_id",
+              "value": 6,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        208,
+        -16
+      ],
+      "id": "dbe48e7a-ac52-4c09-993e-615ec205d52b",
+      "name": "Project ID"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "projects",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "project_id",
+              "keyValue": "={{ $('Project ID').first().json.project_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        416,
+        -16
+      ],
+      "id": "98029f06-9720-46b7-9458-05bbaf8cc295",
+      "name": "Get a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Получаем входящие данные\nconst inputData = $input.all();\n\n// Собираем все проекты из всех входящих элементов\nlet allProjects = [];\n\ninputData.forEach(item => {\n  let projects;\n  \n  // Проверяем, является ли item.json массивом или содержит массив\n  if (Array.isArray(item.json)) {\n    projects = item.json;\n  } else if (item.json && Array.isArray(item.json.projects)) {\n    projects = item.json.projects;\n  } else {\n    // Если это один объект, делаем из него массив\n    projects = [item.json];\n  }\n  \n  // Добавляем все проекты в общий массив\n  allProjects = allProjects.concat(projects);\n});\n\n// Извлекаем названия проектов для списка\nconst projectNames = allProjects.map(project => project.project_name);\n\n// Формируем строку со списком проектов\nconst projectsList = \"Список проектов: \" + projectNames.join(\", \");\n\n// Формируем единый текст для всех проектов\nlet fullText = '';\n\nallProjects.forEach((project, index) => {\n  if (index > 0) {\n    fullText += '\\n\\n'; // Отступ между проектами\n  }\n  \n  // Заголовок проекта\n  fullText += `Проект \"${project.project_name}\"\\n`;\n  \n  // Основные поля проекта\n\n  fullText += `doc: ${project.doc}\\n`;\n  \n  // Поля storyboard\n  if (project.storyboard_client && project.storyboard_client !== null) {\n    fullText += `storyboard_client: ${project.storyboard_client}\\n`;\n  }\n  if (project.storyboard_cult && project.storyboard_cult !== null) {\n    fullText += `storyboard_cult: ${project.storyboard_cult}\\n`;\n  }\n\n   // Поля ИИ генераций\n  if (project.aigen_client && project.aigen_client !== null) {\n    fullText += `aigen_client: ${project.aigen_client}\\n`;\n  }\n  if (project.aigen_cult && project.aigen_cult !== null) {\n    fullText += `aigen_cult: ${project.aigen_cult}\\n`;\n  }\n\n  \n  // Поля casting\n  if (project.casting_client && project.casting_client !== null) {\n    fullText += `casting_client: ${project.casting_client}\\n`;\n  }\n  if (project.casting_cult && project.casting_cult !== null) {\n    fullText += `casting_cult: ${project.casting_cult}\\n`;\n  }\n\n  // Поля clothes\n  if (project.clothes_client && project.clothes_client !== null) {\n    fullText += `clothes_client: ${project.clothes_client}\\n`;\n  }\n  if (project.clothes_cult && project.clothes_cult !== null) {\n    fullText += `clothes_cult: ${project.clothes_cult}\\n`;\n  }\n\n  \n  // Поля props\n  if (project.props_client && project.props_client !== null) {\n    fullText += `props_client: ${project.props_client}\\n`;\n  }\n  if (project.props_cult && project.props_cult !== null) {\n    fullText += `props_cult: ${project.props_cult}\\n`;\n  }\n  \n  // Поля location\n  if (project.location_client && project.location_client !== null) {\n    fullText += `location_client: ${project.location_client}\\n`;\n  }\n  if (project.location_cult && project.location_cult !== null) {\n    fullText += `location_cult: ${project.location_cult}\\n`;\n  }\n\n  \n  // Поля animatic\n  if (project.animatic_client && project.animatic_client !== null) {\n    fullText += `animatic_client: ${project.animatic_client}\\n`;\n  }\n  if (project.animatic_cult && project.animatic_cult !== null) {\n    fullText += `animatic_cult: ${project.animatic_cult}\\n`;\n  }\n\n  \n  // Поля modelling\n  if (project.modelling_client && project.modelling_client !== null) {\n    fullText += `modelling_client: ${project.modelling_client}\\n`;\n  }\n  if (project.modelling_cult && project.modelling_cult !== null) {\n    fullText += `modelling_cult: ${project.modelling_cult}\\n`;\n  }\n \n  \n  // Поля styleshots\n  if (project.styleshots_client && project.styleshots_client !== null) {\n    fullText += `styleshots_client: ${project.styleshots_client}\\n`;\n  }\n  if (project.styleshots_cult && project.styleshots_cult !== null) {\n    fullText += `styleshots_cult: ${project.styleshots_cult}\\n`;\n  }\n\n  // Поля animation\n  if (project.animation_client && project.animation_client !== null) {\n    fullText += `animation_client: ${project.animation_client}\\n`;\n  }\n  if (project.animation_cult && project.animation_cult !== null) {\n    fullText += `animation_cult: ${project.animation_cult}\\n`;\n  }\n\n  \n  // Поля editing\n  if (project.editing_client && project.editing_client !== null) {\n    fullText += `editing_client: ${project.editing_client}\\n`;\n  }\n  if (project.editing_cult && project.editing_cult !== null) {\n    fullText += `editing_cult: ${project.editing_cult}\\n`;\n  }\n\n  \n  // Поля music\n  if (project.music_client && project.music_client !== null) {\n    fullText += `music_client: ${project.music_client}\\n`;\n  }\n  if (project.music_cult && project.music_cult !== null) {\n    fullText += `music_cult: ${project.music_cult}\\n`;\n  }\n\n  \n  // Поля vo (voice over)\n  if (project.vo_client && project.vo_client !== null) {\n    fullText += `vo_client: ${project.vo_client}\\n`;\n  }\n  if (project.vo_cult && project.vo_cult !== null) {\n    fullText += `vo_cult: ${project.vo_cult}\\n`;\n  }\n\n  \n  // Поля colorgrading\n  if (project.colorgrading_client && project.colorgrading_client !== null) {\n    fullText += `colorgrading_client: ${project.colorgrading_client}\\n`;\n  }\n  if (project.colorgrading_cult && project.colorgrading_cult !== null) {\n    fullText += `colorgrading_cult: ${project.colorgrading_cult}\\n`;\n  }\n\n  \n  // Поля photos\n  if (project.photos_client && project.photos_client !== null) {\n    fullText += `photos_client: ${project.photos_client}\\n`;\n  }\n  if (project.photos_cult && project.photos_cult !== null) {\n    fullText += `photos_cult: ${project.photos_cult}\\n`;\n  }\n \n  \n  // Поля cg (computer graphics)\n  if (project.cg_client && project.cg_client !== null) {\n    fullText += `cg_client: ${project.cg_client}\\n`;\n  }\n  if (project.cg_cult && project.cg_cult !== null) {\n    fullText += `cg_cult: ${project.cg_cult}\\n`;\n  }\n\n});\n\n// Возвращаем ОДИН элемент со всей информацией И списком проектов\nreturn [{\n  json: {\n    projects_details: fullText,\n    projects_list: projectsList\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        -16
+      ],
+      "id": "d143040b-7f3b-4fbb-98da-f252ad2dc6ec",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=# ТЕКСТ\n\n{{ $json.projects_details }}\n\n# ЗАДАЧА\n\nНе меня содержимого текста, отформатируй этот текст следющим образом\n\nперед каждым новым предложением вставь символ --- \nслова типа  doс, storyboard_client и так далее тоже считай отдельными предложениями",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        832,
+        -16
+      ],
+      "id": "1a62c343-6084-4d36-8d2a-4930ea35f76e",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "model": "google/gemini-2.5-flash-lite",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        768,
+        192
+      ],
+      "id": "d722bfea-4be3-4570-a8ad-cc106f6441b5",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "X2jA03MbtKyBzUY4",
+          "name": "OpenRouter Cult IT Dept"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Получаем входные данные\nconst inputData = $input.all();\n\n// Массив для результатов\nconst outputItems = [];\n\n// Обрабатываем каждый входной item\nfor (const item of inputData) {\n  // Получаем текст из поля text\n  let text = item.json.text || '';\n  \n  // Сначала разделяем по разделителю \"---\"\n  const parts = text.split('---');\n  \n  // Обрабатываем каждую часть\n  for (const part of parts) {\n    // Убираем все символы \\n и лишние пробелы\n    let cleanText = part.replace(/\\\\n/g, '').replace(/\\n/g, '').trim();\n    \n    // Если текст не пустой\n    if (cleanText) {\n      // Проверяем, содержит ли строка двоеточие (например, \"doc:\", \"storyboard_client:\")\n      if (cleanText.includes(':')) {\n        // Разделяем по двоеточию\n        const colonParts = cleanText.split(':');\n        \n        // Первая часть - это категория (например, \"doc\", \"storyboard_client\")\n        const category = colonParts[0].trim();\n        if (category) {\n          outputItems.push({\n            json: {\n              text: category\n            }\n          });\n        }\n        \n        // Остальная часть - это содержание после двоеточия\n        const content = colonParts.slice(1).join(':').trim();\n        if (content) {\n          outputItems.push({\n            json: {\n              text: content\n            }\n          });\n        }\n      } else {\n        // Если нет двоеточия, просто добавляем как есть\n        outputItems.push({\n          json: {\n            text: cleanText\n          }\n        });\n      }\n    }\n  }\n}\n\nreturn outputItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        -16
+      ],
+      "id": "d49db941-9be6-48ba-b4c3-175d7040a9ec",
+      "name": "Code1"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "=1FsRsA-XHkK4EFXuJzCTK6cUoCy5V6CFlrnR2OKmDRsk",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1FsRsA-XHkK4EFXuJzCTK6cUoCy5V6CFlrnR2OKmDRsk/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Статус": "= {{ $json.text }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Статус",
+              "displayName": "Статус",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "10ти балльная оценка точности",
+              "displayName": "10ти балльная оценка точности",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Коммент продюсера",
+              "displayName": "Коммент продюсера",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2208,
+        64
+      ],
+      "id": "fffa32f5-a198-412a-a746-e5df2288136d",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "61DxU0bIbd2OI0hZ",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1696,
+        -16
+      ],
+      "id": "4ec89e09-1394-47ed-9b51-0b693bb64594",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "name": "Replace Me",
+      "typeVersion": 1,
+      "position": [
+        2752,
+        208
+      ],
+      "id": "6fed7717-b8e9-4281-87c1-9d89848f5e5b"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "166b6ccc-9636-471d-b23d-baff92508aa5",
+              "name": "text",
+              "value": "={{ $json.text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1968,
+        64
+      ],
+      "id": "ece7a31e-ba44-457b-8339-3be9c762f81f",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2416,
+        64
+      ],
+      "id": "eca3acd0-ce93-4b62-8f4e-380caa46b05a",
+      "name": "Wait",
+      "webhookId": "450350d2-1126-4705-bf63-19626a560c20"
+    },
+    {
+      "parameters": {
+        "maxItems": 75,
+        "keep": "lastItems"
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        1392,
+        -16
+      ],
+      "id": "c4ec0c54-718e-4e91-add0-c379e86f09b8",
+      "name": "Limit",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "## Система сборки для продюсеров удобного статуса для оценки работы ботов",
+        "height": 96,
+        "width": 560
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        16,
+        -160
+      ],
+      "typeVersion": 1,
+      "id": "317a1fb8-66bc-4d57-ac30-fb6a3cdfa903",
+      "name": "Sticky Note"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Project ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Project ID": {
+      "main": [
+        [
+          {
+            "node": "Get a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a row": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Replace Me": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Replace Me",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "7b817596-b544-4409-a859-40519df45f65",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "eef5c58a94f0f097a8fba5e0fe9604c06cfc8c39bdf7bed68b76dba58813a6e0"
+  },
+  "id": "00wjzFpf63yMt2Xq",
+  "tags": []
+}

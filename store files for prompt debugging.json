@@ -1,0 +1,374 @@
+{
+  "name": "store files for prompt debugging",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -32,
+        0
+      ],
+      "id": "a2a7304b-77f4-414b-9910-c90a8314c1b0",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "prompts_debugging",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        416,
+        0
+      ],
+      "id": "9d07637d-fa9d-44d0-a1f0-f200cf54f74b",
+      "name": "Get a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c6e7c999-d436-404d-9d64-b95360629de7",
+              "name": "id",
+              "value": "139",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "279b6185-b499-4230-9a3f-d8633d513169",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "={{ $json.id }}",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list",
+          "cachedResultName": "My Drive",
+          "cachedResultUrl": "https://drive.google.com/drive/my-drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "16kknHwf5FlUoeNxtSp6rpKo2cwW4M_D5",
+          "mode": "list",
+          "cachedResultName": "Тестирование промптов",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/16kknHwf5FlUoeNxtSp6rpKo2cwW4M_D5"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        624,
+        0
+      ],
+      "id": "d8b88654-3e37-4ea9-b162-aa68aebf01e7",
+      "name": "Create folder",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "hYjJBwPYhRk3ACBI",
+          "name": "Google Drive egor.maraev@gmail.com prompts debugging drive"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "folderId": "={{ $json.id }}",
+        "title": "={{ $json.name }} текущий статус"
+      },
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        832,
+        0
+      ],
+      "id": "a7dc9836-ecc3-4f5e-8d3a-b030dd73185a",
+      "name": "Create current status",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "U1mq7226AayTkiaG",
+          "name": "egor.maraev@gmial.com debugging Docs 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentURL": "={{ $json.id }}",
+        "actionsUi": {
+          "actionFields": [
+            {
+              "action": "insert",
+              "text": "={{ $('Get a row').item.json.current_status }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "b2df26f5-34d7-4a4a-8fbd-30bd35fdace3",
+      "name": "Update a document",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "U1mq7226AayTkiaG",
+          "name": "egor.maraev@gmial.com debugging Docs 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "folderId": "={{ $('Create folder').item.json.id }}",
+        "title": "={{ $('Create folder').item.json.name }} переписки"
+      },
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        0
+      ],
+      "id": "73219461-7e6d-47af-b1c4-c3d5e9a40074",
+      "name": "Create perepiski",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "U1mq7226AayTkiaG",
+          "name": "egor.maraev@gmial.com debugging Docs 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentURL": "={{ $json.id }}",
+        "actionsUi": {
+          "actionFields": [
+            {
+              "action": "insert",
+              "text": "={{ $('Get a row').item.json.perepiski }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        0
+      ],
+      "id": "61c47329-9d16-49d2-b8b0-4e7533b4b875",
+      "name": "Update a document1",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "U1mq7226AayTkiaG",
+          "name": "egor.maraev@gmial.com debugging Docs 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "folderId": "={{ $('Create folder').item.json.id }}",
+        "title": "={{ $('Create folder').item.json.name }} обновления статуса"
+      },
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        1648,
+        0
+      ],
+      "id": "1f4e1454-6f18-4f98-84bf-1d864202ce0b",
+      "name": "Create  obnovleniya",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "U1mq7226AayTkiaG",
+          "name": "egor.maraev@gmial.com debugging Docs 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentURL": "={{ $json.id }}",
+        "actionsUi": {
+          "actionFields": [
+            {
+              "action": "insert",
+              "text": "=**Договор**\n{{ $('Get a row').item.json.doc }}\n\nПричины:\n{{ $('Get a row').item.json.reason_doc }}\n\n**Сториборд - клиент**\n{{ $('Get a row').item.json.storyboard_client }}\n**Сториборд - культ**\n{{ $('Get a row').item.json.storyboard_cult }}\n\nПричины:\n{{ $('Get a row').item.json.reason_storyboard }}\n\n**ИИ-генерации - клиент**\n{{ $('Get a row').item.json.aigen_client }}\n**ИИ-генерации - культ**\n{{ $('Get a row').item.json.aigen_cult }}\n\nПричины:\n{{ $('Get a row').item.json.reason_aigen }}\n\n**Кастинг - клиент**\n{{ $('Get a row').item.json.casting_client }}\n**Кастинг - культ**\n{{ $('Get a row').item.json.casting_cult }}\n\nПричины:\n{{ $('Get a row').item.json.reason_casting }}\n\n**Одежда - клиент**\n{{ $('Get a row').item.json.clothes_client }}\n**Одежда - культ**\n{{ $('Get a row').item.json.clothes_cult }}\n\nПричины:\n{{ $('Get a row').item.json.reason_clothes }}\n\n**Реквизит - клиент**\n{{ $('Get a row').item.json.props_client }}\n**Реквизит - культ**\n{{ $('Get a row').item.json.props_cult }}\n\nПричины:\n{{ $('Get a row').item.json.reason_props }}\n\n**Локации - клиент**\n{{ $('Get a row').item.json.location_client }}\n**Локации - культ**\n{{ $('Get a row').item.json.location_cult }}\n\nПричины:\n{{ $('Get a row').item.json.reason_location }}\n\n**Аниматик - клиент**\n{{ $('Get a row').item.json.animatic_client }}\n**Аниматик - культ**\n{{ $('Get a row').item.json.animatic_cult }}\n\nПричины:\n{{ $('Get a row').item.json.reason_animatic }}\n\n**Моделирование - клиент**\n{{ $('Get a row').item.json.modelling_client }}\n**Моделирование - культ**\n{{ $('Get a row').item.json.modelling_cult }}\n\nПричины:\n{{ $('Get a row').item.json.reason_modelling }}\n\n**Стайлшоты - клиент**\n{{ $('Get a row').item.json.styleshots_client }}\n**Стайлшоты - культ**\n{{ $('Get a row').item.json.styleshots_cult }}\n\nПричины:\n{{ $('Get a row').item.json.reason_styleshots }}\n\n**Анимация - клиент**\n{{ $('Get a row').item.json.animation_client }}\n**Анимация - культ**\n{{ $('Get a row').item.json.animation_cult }}\n\nПричины:\n{{ $('Get a row').item.json.reason_animation }}\n\n**Монтаж - клиент**\n{{ $('Get a row').item.json.editing_client }}\n**Монтаж - культ**\n{{ $('Get a row').item.json.editing_cult }}\n\nПричины:\n{{ $('Get a row').item.json.reason_editing }}\n\n**Музыка - клиент**\n{{ $('Get a row').item.json.music_client }}\n**Музыка - культ**\n{{ $('Get a row').item.json.music_cult }}\n\nПричины:\n{{ $('Get a row').item.json.reason_music }}\n\n**Войсовер - клиент**\n{{ $('Get a row').item.json.vo_client }}\n**Войсовер - культ**\n{{ $('Get a row').item.json.vo_cult }}\n\nПричины:\n{{ $('Get a row').item.json.reason_vo }}\n\n**Цветокоррекция - клиент**\n{{ $('Get a row').item.json.colorgrading_client }}\n**Цветокоррекция - культ**\n{{ $('Get a row').item.json.colorgrading_cult }}\n\nПричины:\n{{ $('Get a row').item.json.reason_colorgrading }}\n\n**Фотографии - клиент**\n{{ $('Get a row').item.json.photos_client }}\n**Фотографии - культ**\n{{ $('Get a row').item.json.photos_cult }}\n\nПричины:\n{{ $('Get a row').item.json.reason_photos }}\n\n**Компьютерная графика - клиент**\n{{ $('Get a row').item.json.cg_client }}\n**Компьютерная графика - культ**\n{{ $('Get a row').item.json.cg_cult }}\n\nПричины:\n{{ $('Get a row').item.json.reason_cg }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        1856,
+        0
+      ],
+      "id": "3f2eeb77-8f36-4581-9ec9-dfff28e36bd9",
+      "name": "Update a document2",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "U1mq7226AayTkiaG",
+          "name": "egor.maraev@gmial.com debugging Docs 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Выгрузка информации в виде текстовых документов для анализа переписки и информации",
+        "height": 128,
+        "width": 448
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -64,
+        -160
+      ],
+      "typeVersion": 1,
+      "id": "9453f326-1bfd-47dc-ab87-711dc8b72c59",
+      "name": "Sticky Note"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Get a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a row": {
+      "main": [
+        [
+          {
+            "node": "Create folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create folder": {
+      "main": [
+        [
+          {
+            "node": "Create current status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create current status": {
+      "main": [
+        [
+          {
+            "node": "Update a document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a document": {
+      "main": [
+        [
+          {
+            "node": "Create perepiski",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create perepiski": {
+      "main": [
+        [
+          {
+            "node": "Update a document1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a document1": {
+      "main": [
+        [
+          {
+            "node": "Create  obnovleniya",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create  obnovleniya": {
+      "main": [
+        [
+          {
+            "node": "Update a document2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1ece08e6-ad97-42c5-8aef-0550672881a0",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "eef5c58a94f0f097a8fba5e0fe9604c06cfc8c39bdf7bed68b76dba58813a6e0"
+  },
+  "id": "GcjqATiXFXasH70Z",
+  "tags": []
+}

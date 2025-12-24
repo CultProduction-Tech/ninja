@@ -1,0 +1,222 @@
+{
+  "name": "Collect Messages to Database",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "89712608-3eab-4ad6-9fd2-b85f9d9a18d9",
+      "name": "Telegram Trigger",
+      "webhookId": "2c41e2af-4ee9-41e9-b154-f0e1af8bf12b",
+      "credentials": {
+        "telegramApi": {
+          "id": "jDKc1tJGIW7LLK1W",
+          "name": "Tech CultPro Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "messages",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "telegram_chat_id",
+              "fieldValue": "={{ $json.message.chat.id }}"
+            },
+            {
+              "fieldId": "is_analyzed",
+              "fieldValue": "false"
+            },
+            {
+              "fieldId": "sender_id",
+              "fieldValue": "={{ $json.message.from.id }}"
+            },
+            {
+              "fieldId": "message_text",
+              "fieldValue": "={{ $json.message.text }}"
+            },
+            {
+              "fieldId": "chat_name_tg",
+              "fieldValue": "={{ $json.message.chat.title }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        432,
+        0
+      ],
+      "id": "05f5cf24-dde2-4571-b9f0-79a1392f0361",
+      "name": "Supabase",
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fe64dd85-7501-4e7a-bdca-4e30e45c66b1",
+              "leftValue": "={{ $('Telegram Trigger').item.json.message.new_chat_member }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        640,
+        0
+      ],
+      "id": "73bb98af-39f3-4b94-b370-8e1ebe917bf6",
+      "name": "If",
+      "alwaysOutputData": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "=Привет! Я — бот Статус Ниндзя 🥷\nЧитаю проектные чаты и собираю статусы, дедлайны и риски,\nчтобы вам не приходилось выяснять, что происходит.\n\nЯ обрабатываю Telegram ID, имя и сообщения в чате в соотвествии с законодательством. Серверы находятся в России и после проекта данные удаляются.\n\nОставаясь здесь, вы соглашаетесь с [политикой](https://drive.google.com/file/d/1Mkrxyt6un8yDYt9qaui7O0IVR2tV1DP9/view) обработки персональных данных.\nУдалить меня можно через продюсера.",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        896,
+        -128
+      ],
+      "id": "2ee67315-a758-4353-8cd2-5c75c3d91710",
+      "name": "Send a text message",
+      "webhookId": "589639b1-1c56-49f4-aa49-48c97df4573d",
+      "credentials": {
+        "telegramApi": {
+          "id": "jDKc1tJGIW7LLK1W",
+          "name": "Tech CultPro Bot"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        848,
+        96
+      ],
+      "id": "98719d71-96f0-4583-ad47-632bd6653fd3",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Извлекаем данные сообщения\nconst items = $input.all();\n\nreturn items.map(item => {\n  const message = item.json.message || {};\n  const text = message.text || '';\n  const entities = message.entities || [];\n  \n  // Собираем все ссылки из entities\n  const links = [];\n  \n  entities.forEach(entity => {\n    if (entity.type === 'url') {\n      // Обычная ссылка в тексте\n      const url = text.substring(entity.offset, entity.offset + entity.length);\n      links.push(url);\n    } else if (entity.type === 'text_link') {\n      // Гиперссылка (скрытая ссылка под текстом)\n      links.push(entity.url);\n    }\n  });\n  \n  // Формируем полный текст с ссылками\n  let fullText = text;\n  if (links.length > 0) {\n    fullText += '\\n\\nСсылки:\\n' + links.join('\\n');\n  }\n  \n  return {\n    json: {\n      ...item.json,\n      message: {\n        ...message,\n        text: fullText,\n        extracted_links: links\n      }\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "895ccf01-ef68-48db-8954-add00c140828",
+      "name": "Code"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Moscow",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "f5f9b09e-f6c3-4559-beb2-19963a5c364e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "eef5c58a94f0f097a8fba5e0fe9604c06cfc8c39bdf7bed68b76dba58813a6e0"
+  },
+  "id": "0FdUzLKo06Ne2WIX",
+  "tags": []
+}

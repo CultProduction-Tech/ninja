@@ -1,0 +1,605 @@
+{
+  "name": "Status Update Trigger",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "chats"
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        384,
+        0
+      ],
+      "id": "50fdb420-4b14-4052-90c7-877c33f21f29",
+      "name": "Get all chats",
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        624,
+        0
+      ],
+      "id": "2123630e-4ef4-4875-80b3-34c11686269b",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "name": "Replace Me",
+      "typeVersion": 1,
+      "position": [
+        2304,
+        32
+      ],
+      "id": "37335d47-803e-4b6a-bcbe-fca4e3f35afd"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "messages",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "telegram_chat_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.chat_id_loop }}"
+            },
+            {
+              "keyName": "is_analyzed",
+              "condition": "eq",
+              "keyValue": "FALSE"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        16
+      ],
+      "id": "6eaed29a-0da0-43db-806d-92fb174ec2ae",
+      "name": "Get new messages",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Подсчет количества входящих items с проверкой на пустые данные\nconst allItems = $input.all();\nlet itemCount = 0;\n\n// Проверяем, есть ли реальные данные\nif (allItems && allItems.length > 0) {\n  // Проверяем, не является ли единственный item пустым объектом\n  if (allItems.length === 1 && (!allItems[0].json || Object.keys(allItems[0].json).length === 0)) {\n    itemCount = 0;\n  } else {\n    itemCount = allItems.length;\n  }\n}\n\nreturn [\n  {\n    json: {\n      count: itemCount,\n      timestamp: new Date().toISOString()\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        16
+      ],
+      "id": "2e59bc23-a1d5-4e89-9f43-d9f7a7fb1a7c",
+      "name": "Count new messages"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "system",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "1"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "one_more_update",
+              "fieldValue": "FALSE"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        64,
+        0
+      ],
+      "id": "211cfd14-7031-4670-8841-0eb9afdb3f7d",
+      "name": "set FALSE - one more update",
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4d0936ac-38b0-4bbe-acb8-8525adfa44dd",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": "={{  $('Set Variables').first().json.limit }}",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1472,
+        16
+      ],
+      "id": "b5def905-6063-441d-beaf-8ea0ee7e5a56",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "system",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "1"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        0
+      ],
+      "id": "50b12164-34b9-48ed-88b2-8b0e48f8bfaf",
+      "name": "Get a limit",
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "bf6586e6-779f-4f48-b02e-66b822ddf157",
+              "name": "chat_id_loop",
+              "value": "={{ $json.telegram_chat_id }}",
+              "type": "string"
+            },
+            {
+              "id": "a0aa421e-4bed-462e-84e5-866d465f3eb2",
+              "name": "limit",
+              "value": "={{ $('Get a limit').first().json.number_of_new_messages }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        832,
+        16
+      ],
+      "id": "3b72b86a-5ae8-46cc-8bd2-593265362da6",
+      "name": "Set Variables"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "system",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "1"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "one_more_update",
+              "fieldValue": "TRUE"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1824,
+        -112
+      ],
+      "id": "308360f7-2838-4bb0-98ea-71a315061e43",
+      "name": "TRUE - one more update",
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://cultn8n.space/webhook/update_start",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        848,
+        -240
+      ],
+      "id": "5d557764-6db9-4229-a87f-e556462ba5df",
+      "name": "Trigger Update",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "one_more_trigger",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -432,
+        208
+      ],
+      "id": "e62a0cff-3868-46d5-9131-77949a61b363",
+      "name": "Webhook",
+      "webhookId": "52013e81-4917-4c1f-b572-1540d9e79ee7"
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -192,
+        0
+      ],
+      "id": "07be0aeb-8481-4bb8-9566-d92dca9497d3",
+      "name": "Telegram Trigger",
+      "webhookId": "4867b603-ae91-4079-8787-de983063d3ef",
+      "credentials": {
+        "telegramApi": {
+          "id": "d9VHJ5SbTIXL0x4S",
+          "name": "Debug Bot"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "Проверяем сколько непрочитанных сообщений в каждом из чатов. Если больше установленного лимита, тогда нужен будет сразу еще один запуск анализатора. "
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        608,
+        240
+      ],
+      "typeVersion": 1,
+      "id": "62cf2fbc-edfa-4425-9153-fb2313d35cd5",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "Вот тут ставим флаг TRUE если нужно будет еще раз крутить анализатор после завершения",
+        "height": 144
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1760,
+        -288
+      ],
+      "typeVersion": 1,
+      "id": "434480c6-af91-4340-8e13-bdb5525963a7",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "Вот тут ставим флаг FALSE, обнуляя проверки. Если далее не изменится на TRUE, тогда больше не нужно гонять анализатор ",
+        "height": 112
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        0,
+        -144
+      ],
+      "typeVersion": 1,
+      "id": "66fa0e0b-bb70-4790-b80b-e70f917965bb",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Как работает \n\nПросто считает количество сообщений в чатах и проставляет флаг one more, если хотя бы в одном чате сообщений больше, чем limit. \n\nАнализатор в конце сам еще раз вызовет этот алгоритм через вебхук, если нужно будет еще раз сделать проверку. ",
+        "height": 304
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -624,
+        -192
+      ],
+      "typeVersion": 1,
+      "id": "76f43b2d-a0a6-464a-8349-12d7ca2a9090",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 8
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -256,
+        -224
+      ],
+      "id": "9a943130-f250-4ad3-9c5a-a4694330f6a8",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://cult-ai-agents.onrender.com/api/workflow-logs",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_id",
+              "value": "=update"
+            },
+            {
+              "name": "message",
+              "value": "=Погнали на второй круг"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -192,
+        208
+      ],
+      "id": "f0d4eedd-2cfe-4a60-b162-94660c0c0895",
+      "name": "Log"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get all chats": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Trigger Update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Variables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Replace Me": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get new messages": {
+      "main": [
+        [
+          {
+            "node": "Count new messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Count new messages": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set FALSE - one more update": {
+      "main": [
+        [
+          {
+            "node": "Get a limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "TRUE - one more update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Replace Me",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a limit": {
+      "main": [
+        [
+          {
+            "node": "Get all chats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Variables": {
+      "main": [
+        [
+          {
+            "node": "Get new messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TRUE - one more update": {
+      "main": [
+        [
+          {
+            "node": "Replace Me",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "set FALSE - one more update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "set FALSE - one more update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log": {
+      "main": [
+        [
+          {
+            "node": "set FALSE - one more update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Yerevan",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "475aadcc-d5be-4df8-87e4-c04ce0bab0e1",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "eef5c58a94f0f097a8fba5e0fe9604c06cfc8c39bdf7bed68b76dba58813a6e0"
+  },
+  "id": "gBkcY6DMjYK2a5yz",
+  "tags": []
+}

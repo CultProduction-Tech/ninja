@@ -1,0 +1,128 @@
+{
+  "name": "Get ID bot",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "35a28c71-c5fd-42e9-9fcf-708329cf676a",
+      "name": "Telegram Trigger",
+      "webhookId": "c8ee7cd9-b53c-4970-93a2-0be670e4b2e7",
+      "credentials": {
+        "telegramApi": {
+          "id": "UwZq5lhI70S9EME9",
+          "name": "TG id Cult Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "new_people",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "tg_id",
+              "fieldValue": "={{ $json.message.forward_from.id }}"
+            },
+            {
+              "fieldId": "name",
+              "fieldValue": "={{ $json.message.forward_from.first_name }}"
+            },
+            {
+              "fieldId": "surname",
+              "fieldValue": "={{ $json.message.forward_from.last_name }}"
+            },
+            {
+              "fieldId": "nickname",
+              "fieldValue": "={{ $json.message.forward_from.username }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        208,
+        0
+      ],
+      "id": "15ef64b8-29d5-467c-8cdd-33fc7faf8642",
+      "name": "Create a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.from.id }}",
+        "text": "=Telegram ID:  {{ $('Telegram Trigger').item.json.message.forward_from.id }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "6d80094f-46d0-4631-8ab8-2b98be3a83a7",
+      "name": "Send a text message",
+      "webhookId": "cd10ed1e-9fa4-4fd2-a86a-2ff31e9d98fc",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "UwZq5lhI70S9EME9",
+          "name": "TG id Cult Bot"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a row": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1bdec0ec-da53-4ffc-875e-900054deb04d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "eef5c58a94f0f097a8fba5e0fe9604c06cfc8c39bdf7bed68b76dba58813a6e0"
+  },
+  "id": "D58Mxy42pYzn3FRj",
+  "tags": []
+}

@@ -1,0 +1,2650 @@
+{
+  "name": "Producer Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.from.id }}",
+        "text": "={{ $('Markdown V2 formatting').first().json.output }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        4912,
+        272
+      ],
+      "id": "2afeeb9f-29fa-4cd2-9984-af5fa1af7e82",
+      "name": "Telegram",
+      "webhookId": "ae3bac12-25a8-4644-bf11-26e5a03cd7a4",
+      "alwaysOutputData": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uHY5pArRdG2wu3Z4",
+          "name": "Producer Cult Bot"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.sobesednik_id }}",
+        "contextWindowLength": 3
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        3408,
+        688
+      ],
+      "id": "0fc57210-9a9f-45c2-a75b-79de55c3d9e6",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.message.text }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "exists",
+                      "singleValue": true
+                    },
+                    "id": "b78d4c75-72e5-4201-beb4-26c9b3b9300b"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "text"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "9350ee5c-f6a1-42af-a151-73e735b9cab7",
+                    "leftValue": "={{ $json.message.voice }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "object",
+                      "operation": "exists",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "voice"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -864,
+        224
+      ],
+      "id": "639adc8f-4b1f-45c7-b992-9dd56c487f4a",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "fileId": "={{ $json.message.voice.file_id }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -592,
+        368
+      ],
+      "id": "0a2258df-8b73-4fae-b098-dc68910e88bd",
+      "name": "Telegram1",
+      "webhookId": "b0036879-6cec-4fce-8508-8cf0b718e454",
+      "credentials": {
+        "telegramApi": {
+          "id": "uHY5pArRdG2wu3Z4",
+          "name": "Producer Cult Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "audio",
+        "operation": "transcribe",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        -400,
+        368
+      ],
+      "id": "ec623dc8-0b8b-4a0f-afb5-4e62073bdb67",
+      "name": "OpenAI",
+      "credentials": {
+        "openAiApi": {
+          "id": "ULyrSxhoDdUp9hHZ",
+          "name": "Cult AI Agents"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=текущее время и дата: {{ $now.setZone('Europe/Moscow') }}\n\n{{ $json.prompt }}\n\n\n## ОБНОВЛЕНИЕ КОДА\n\nесли вот этот код - {{ $json.code }} - это  az16, тогда в выдаче поставь code: bz16\n\nесли вот этот код - {{ $json.code }} - это код dd28, тогда в выдаче поставь code: ff28\n\n## ФОРМАТ ВЫДАЧИ\n\ntext: \"здесь ответ на задачу 1\"\ncode: \"нужный код из задачи 2\"",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        3344,
+        448
+      ],
+      "id": "f7591385-8495-4de3-a2f8-5f4b26eb6781",
+      "name": "AI Agent",
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "### Алгоритм\n\n1. Авторизация: \n\n1-1 по sender_ID определяем какой это продюсер.\n1-2 находим всю информацию из базы по его проектам и даем как часть промпта. \n\n\n2. Сбор клиентского статуса\n\n2-1. Раз в сутки бот собирает по специальной форме клиентский статус и пишет продюсеру проекта, чтобы проверил. Это прямо отдельный трек входящей информации в агента, включая промпт предзаданный.  \n2-2. Продюсер приходит, проверяет, может откорректировать (конкретно поле клиентский статус). Корректно работает корректировка. \n2-3. Когда подтверждает, статус аппрувится (инструмент)\n\n\n3. Tools  \n\n3-1 Change_status - можно поменять информацию в базе\nпередаем project_id , название полей, которые нужно заменить. \n\n3-2 Status_approve - когда продюсер подтвердил статус, он помечается как заапрувленный. ",
+        "height": 480,
+        "width": 700
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1808,
+        -336
+      ],
+      "typeVersion": 1,
+      "id": "b6de838a-e63a-4500-9501-bbefa9412e17",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3d16506b-274f-4fe1-a7de-b1c3bf832e8d",
+              "name": "text",
+              "value": "={{ $('Telegram Trigger').item.json.message.text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -480,
+        128
+      ],
+      "id": "1b48ecdb-2eb5-4eea-9620-c13360322156",
+      "name": "Text"
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1104,
+        224
+      ],
+      "id": "2eecfbdd-301f-4383-a6b1-de749f4954de",
+      "name": "Telegram Trigger",
+      "webhookId": "0fb0673e-a944-433c-964b-113a712d4330",
+      "credentials": {
+        "telegramApi": {
+          "id": "uHY5pArRdG2wu3Z4",
+          "name": "Producer Cult Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "={{ $json.model }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        3280,
+        656
+      ],
+      "id": "3eb723e3-aff4-4860-907a-668fe519fc68",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "X2jA03MbtKyBzUY4",
+          "name": "OpenRouter Cult IT Dept"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "переменная названа точно так же, как выход из OpenAI",
+        "height": 120,
+        "width": 150
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1056,
+        16
+      ],
+      "typeVersion": 1,
+      "id": "7ac3a690-5729-4d9f-85f1-dd61cb48ce01",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6981af00-fb36-4e27-9131-2170a76ee2c6",
+              "name": "user_message",
+              "value": "={{ $json.text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -224,
+        240
+      ],
+      "id": "5fe0b7de-e705-4a46-9c0d-5df5fe257113",
+      "name": "Set_user_message"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "producers",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "producer_tg_chat_id",
+              "keyValue": "={{ $('Telegram Trigger').first().json.message.from.id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1424,
+        208
+      ],
+      "id": "82d5aa0f-bc49-4e35-a1e0-8c159737e2e7",
+      "name": "Get Producer",
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "projects",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "producer_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.producer_id }}"
+            },
+            {
+              "keyName": "producer2",
+              "condition": "eq",
+              "keyValue": "={{ $json.producer_id }}"
+            },
+            {
+              "keyName": "producer3",
+              "condition": "eq",
+              "keyValue": "={{ $json.producer_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        208
+      ],
+      "id": "d2fde259-ecce-4a0d-87ef-6a3b52429666",
+      "name": "Get_Projects",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Получаем входящие данные\nconst inputData = $input.all();\n\n// Проверяем, что входящие данные не пустые\nif (!inputData || inputData.length === 0) {\n  return [{\n    json: {\n      projects_details: \"Нет данных о проектах\",\n      projects_list: \"Проектов не обнаружено\"\n    }\n  }];\n}\n\n// Собираем все проекты из всех входящих элементов\nlet allProjects = [];\n\ninputData.forEach(item => {\n  // Проверяем, что item и item.json существуют и не пустые\n  if (!item || !item.json || Object.keys(item.json).length === 0) {\n    return; // Пропускаем пустые элементы\n  }\n  \n  let projects;\n  \n  // Проверяем, является ли item.json массивом или содержит массив\n  if (Array.isArray(item.json)) {\n    projects = item.json;\n  } else if (item.json && Array.isArray(item.json.projects)) {\n    projects = item.json.projects;\n  } else {\n    // Если это один объект, делаем из него массив\n    projects = [item.json];\n  }\n  \n  // Добавляем все проекты в общий массив\n  allProjects = allProjects.concat(projects);\n});\n\n// Проверяем, есть ли валидные проекты после обработки\nif (allProjects.length === 0) {\n  return [{\n    json: {\n      projects_details: \"Проектов не обнаружено\",\n      projects_list: \"Проектов не обнаружено\"\n    }\n  }];\n}\n\n// Извлекаем названия проектов для списка\nconst projectNames = allProjects.map(project => project.project_name);\n\n// Формируем строку со списком проектов\nconst projectsList = \"Список проектов: \" + projectNames.join(\", \");\n\n// Формируем единый текст для всех проектов\nlet fullText = '';\n\nallProjects.forEach((project, index) => {\n  // Проверяем, что проект существует и имеет базовые поля\n  if (!project || !project.project_name) {\n    return; // Пропускаем некорректные проекты\n  }\n  \n  if (index > 0) {\n    fullText += '\\n\\n'; // Отступ между проектами\n  }\n  \n  // Заголовок проекта\n  fullText += `Проект \"${project.project_name}\"\\n`;\n  \n  // Проверяем статус проекта\n  if (project.status === 'finished') {\n    // Если проект завершен, добавляем только уведомление\n    fullText += `Проект завершен`;\n    return; // Переходим к следующему проекту\n  }\n  \n  // Если статус = active или любой другой, показываем полную информацию\n  // Основные поля проекта\n  fullText += `project_id: ${project.project_id}\\n`;\n  fullText += `producer_id: ${project.producer_id}\\n`;\n  fullText += `client_id: ${project.client_id}\\n`;\n  fullText += `status: ${project.status}\\n`;\n  fullText += `stage: ${project.stage}\\n`;\n  fullText += `doc: ${project.doc}\\n`;\n  fullText += `act: ${project.act}\\n`;\n  fullText += `docs_status: ${project.docs_status}\\n`;\n  \n  // Добавляем поле type если оно есть\n  if (project.type && project.type !== null) {\n    fullText += `type: ${project.type}\\n`;\n  }\n  \n  // Поля storyboard\n  if (project.storyboard_client && project.storyboard_client !== null) {\n    fullText += `storyboard_client: ${project.storyboard_client}\\n`;\n  }\n  if (project.storyboard_cult && project.storyboard_cult !== null) {\n    fullText += `storyboard_cult: ${project.storyboard_cult}\\n`;\n  }\n  if (project.storyboard_next_step && project.storyboard_next_step !== null) {\n    fullText += `storyboard_next_step: ${project.storyboard_next_step}\\n`;\n  }\n\n   // Поля ИИ генераций\n  if (project.aigen_client && project.aigen_client !== null) {\n    fullText += `aigen_client: ${project.aigen_client}\\n`;\n  }\n  if (project.aigen_cult && project.aigen_cult !== null) {\n    fullText += `aigen_cult: ${project.aigen_cult}\\n`;\n  }\n  if (project.aigen_next_steps && project.aigen_next_steps !== null) {\n    fullText += `aigen_next_steps: ${project.aigen_next_steps}\\n`;\n  }\n  \n  // Поля casting\n  if (project.casting_client && project.casting_client !== null) {\n    fullText += `casting_client: ${project.casting_client}\\n`;\n  }\n  if (project.casting_cult && project.casting_cult !== null) {\n    fullText += `casting_cult: ${project.casting_cult}\\n`;\n  }\n  if (project.casting_next_step && project.casting_next_step !== null) {\n    fullText += `casting_next_step: ${project.casting_next_step}\\n`;\n  }\n  \n  // Поля clothes\n  if (project.clothes_client && project.clothes_client !== null) {\n    fullText += `clothes_client: ${project.clothes_client}\\n`;\n  }\n  if (project.clothes_cult && project.clothes_cult !== null) {\n    fullText += `clothes_cult: ${project.clothes_cult}\\n`;\n  }\n  if (project.clothes_next_step && project.clothes_next_step !== null) {\n    fullText += `clothes_next_step: ${project.clothes_next_step}\\n`;\n  }\n  \n  // Поля props\n  if (project.props_client && project.props_client !== null) {\n    fullText += `props_client: ${project.props_client}\\n`;\n  }\n  if (project.props_cult && project.props_cult !== null) {\n    fullText += `props_cult: ${project.props_cult}\\n`;\n  }\n  if (project.props_next_step && project.props_next_step !== null) {\n    fullText += `props_next_step: ${project.props_next_step}\\n`;\n  }\n  \n  // Поля location\n  if (project.location_client && project.location_client !== null) {\n    fullText += `location_client: ${project.location_client}\\n`;\n  }\n  if (project.location_cult && project.location_cult !== null) {\n    fullText += `location_cult: ${project.location_cult}\\n`;\n  }\n  if (project.location_next_step && project.location_next_step !== null) {\n    fullText += `location_next_step: ${project.location_next_step}\\n`;\n  }\n  \n  // Поля animatic\n  if (project.animatic_client && project.animatic_client !== null) {\n    fullText += `animatic_client: ${project.animatic_client}\\n`;\n  }\n  if (project.animatic_cult && project.animatic_cult !== null) {\n    fullText += `animatic_cult: ${project.animatic_cult}\\n`;\n  }\n  if (project.animatic_next_steps && project.animatic_next_steps !== null) {\n    fullText += `animatic_next_steps: ${project.animatic_next_steps}\\n`;\n  }\n  \n  // Поля modelling\n  if (project.modelling_client && project.modelling_client !== null) {\n    fullText += `modelling_client: ${project.modelling_client}\\n`;\n  }\n  if (project.modelling_cult && project.modelling_cult !== null) {\n    fullText += `modelling_cult: ${project.modelling_cult}\\n`;\n  }\n  if (project.modelling_next_steps && project.modelling_next_steps !== null) {\n    fullText += `modelling_next_steps: ${project.modelling_next_steps}\\n`;\n  }\n  \n  // Поля styleshots\n  if (project.styleshots_client && project.styleshots_client !== null) {\n    fullText += `styleshots_client: ${project.styleshots_client}\\n`;\n  }\n  if (project.styleshots_cult && project.styleshots_cult !== null) {\n    fullText += `styleshots_cult: ${project.styleshots_cult}\\n`;\n  }\n  if (project.styleshots_next_steps && project.styleshots_next_steps !== null) {\n    fullText += `styleshots_next_steps: ${project.styleshots_next_steps}\\n`;\n  }\n  \n  // Поля animation\n  if (project.animation_client && project.animation_client !== null) {\n    fullText += `animation_client: ${project.animation_client}\\n`;\n  }\n  if (project.animation_cult && project.animation_cult !== null) {\n    fullText += `animation_cult: ${project.animation_cult}\\n`;\n  }\n  if (project.animation_next_steps && project.animation_next_steps !== null) {\n    fullText += `animation_next_steps: ${project.animation_next_steps}\\n`;\n  }\n  \n  // Поля editing\n  if (project.editing_client && project.editing_client !== null) {\n    fullText += `editing_client: ${project.editing_client}\\n`;\n  }\n  if (project.editing_cult && project.editing_cult !== null) {\n    fullText += `editing_cult: ${project.editing_cult}\\n`;\n  }\n  if (project.editing_next_step && project.editing_next_step !== null) {\n    fullText += `editing_next_step: ${project.editing_next_step}\\n`;\n  }\n  \n  // Поля music\n  if (project.music_client && project.music_client !== null) {\n    fullText += `music_client: ${project.music_client}\\n`;\n  }\n  if (project.music_cult && project.music_cult !== null) {\n    fullText += `music_cult: ${project.music_cult}\\n`;\n  }\n  if (project.music_next_step && project.music_next_step !== null) {\n    fullText += `music_next_step: ${project.music_next_step}\\n`;\n  }\n  \n  // Поля vo (voice over)\n  if (project.vo_client && project.vo_client !== null) {\n    fullText += `vo_client: ${project.vo_client}\\n`;\n  }\n  if (project.vo_cult && project.vo_cult !== null) {\n    fullText += `vo_cult: ${project.vo_cult}\\n`;\n  }\n  if (project.vo_next_step && project.vo_next_step !== null) {\n    fullText += `vo_next_step: ${project.vo_next_step}\\n`;\n  }\n  \n  // Поля colorgrading\n  if (project.colorgrading_client && project.colorgrading_client !== null) {\n    fullText += `colorgrading_client: ${project.colorgrading_client}\\n`;\n  }\n  if (project.colorgrading_cult && project.colorgrading_cult !== null) {\n    fullText += `colorgrading_cult: ${project.colorgrading_cult}\\n`;\n  }\n  if (project.colorgrading_next_step && project.colorgrading_next_step !== null) {\n    fullText += `colorgrading_next_step: ${project.colorgrading_next_step}\\n`;\n  }\n  \n  // Поля photos\n  if (project.photos_client && project.photos_client !== null) {\n    fullText += `photos_client: ${project.photos_client}\\n`;\n  }\n  if (project.photos_cult && project.photos_cult !== null) {\n    fullText += `photos_cult: ${project.photos_cult}\\n`;\n  }\n  if (project.photos_next_step && project.photos_next_step !== null) {\n    fullText += `photos_next_step: ${project.photos_next_step}\\n`;\n  }\n  \n  // Поля cg (computer graphics)\n  if (project.cg_client && project.cg_client !== null) {\n    fullText += `cg_client: ${project.cg_client}\\n`;\n  }\n  if (project.cg_cult && project.cg_cult !== null) {\n    fullText += `cg_cult: ${project.cg_cult}\\n`;\n  }\n  if (project.cg_next_step && project.cg_next_step !== null) {\n    fullText += `cg_next_step: ${project.cg_next_step}\\n`;\n  }\n\n  // Клиентские поля \n  if (project.client_demands && project.client_demands !== null) {\n    fullText += `client_demands: ${project.client_demands}\\n`;\n  }\n  if (project.client_status && project.client_status !== null) {\n    fullText += `client_status: ${project.client_status}\\n`;\n  }\n});\n\n// Возвращаем ОДИН элемент со всей информацией И списком проектов\nreturn [{\n  json: {\n    projects_details: fullText,\n    projects_list: projectsList\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1872,
+        272
+      ],
+      "id": "2369b220-9014-4df6-a0b4-23a8e5febc7d",
+      "name": "Code",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "content": "Определяем кто перед нами",
+        "height": 120,
+        "width": 150
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        816,
+        96
+      ],
+      "typeVersion": 1,
+      "id": "b3df94db-74b6-4eb8-8078-16531a034c77",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "description": "Call this tool to set a new value for a certain project field. ",
+        "workflowId": {
+          "__rl": true,
+          "value": "Tg5r9fsyj3O4QbS8",
+          "mode": "list",
+          "cachedResultName": "Set_status"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "project_id": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('project_id', `Project_id field of a project`, 'number') }}",
+            "field_name": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('field_name', `The field that should be changed`, 'string') }}",
+            "new_value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('new_value', `Changed value of the field`, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "project_id",
+              "displayName": "project_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "field_name",
+              "displayName": "field_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "new_value",
+              "displayName": "new_value",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        3536,
+        688
+      ],
+      "id": "bde8cc02-68f0-4737-b2a9-16120f6354d6",
+      "name": "Set_status"
+    },
+    {
+      "parameters": {
+        "content": "Убираем  # на уровне форматирования",
+        "height": 120,
+        "width": 150
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        3744,
+        288
+      ],
+      "typeVersion": 1,
+      "id": "41131c4b-49ea-440b-a046-4e705018a1d0",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "projects",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "client_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.client_id }}"
+            },
+            {
+              "keyName": "client2",
+              "condition": "eq",
+              "keyValue": "={{ $json.client_id }}"
+            },
+            {
+              "keyName": "client3",
+              "condition": "eq",
+              "keyValue": "={{ $json.client_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        32
+      ],
+      "id": "ce0da6b2-66da-4e92-baeb-27631ed60564",
+      "name": "Get_Projects1",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "Получаем всех активных клиентов и всех активных продюсеров (в проектах, которые идут)",
+        "height": 100,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        352,
+        112
+      ],
+      "typeVersion": 1,
+      "id": "55089760-c545-4e83-a52e-4f79339ade5e",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "Запуск раз в сутки",
+        "height": 80,
+        "width": 160
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        400,
+        1184
+      ],
+      "typeVersion": 1,
+      "id": "dd56f09a-9720-407f-978a-b5f0a3822e63",
+      "name": "Sticky Note5",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "Все проекты",
+        "height": 80,
+        "width": 160
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1104,
+        1296
+      ],
+      "typeVersion": 1,
+      "id": "d0580fac-0f2e-427e-b233-6b9fb74ebae2",
+      "name": "Sticky Note6",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "projects",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "active"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        1392
+      ],
+      "id": "ab0e8d28-95f5-421d-aed1-bf550ca899ad",
+      "name": "Supabase",
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1472,
+        1392
+      ],
+      "id": "3192e268-fe21-430e-b82f-931d8772dd0c",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "name": "Replace Me",
+      "typeVersion": 1,
+      "position": [
+        4752,
+        1520
+      ],
+      "id": "8b70037b-7df2-4d13-aeeb-23d2691b5677"
+    },
+    {
+      "parameters": {
+        "content": "Сохраняем промпт специальный",
+        "height": 80,
+        "width": 160
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2752,
+        1296
+      ],
+      "typeVersion": 1,
+      "id": "793f2598-b516-4a82-af96-b9960d8d3693",
+      "name": "Sticky Note8",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "Агент исползуя Set_status сохраняет этот статус в нужное поле",
+        "height": 120,
+        "width": 160
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2608,
+        992
+      ],
+      "typeVersion": 1,
+      "id": "f3bbc921-bce8-418b-9d2c-89e166b54699",
+      "name": "Sticky Note9"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.from.id }}",
+        "text": "={{ [\"сек...\", \"думаю...\", \"сейчас отвечу\", \"момент...\", \"соображаю...\", \"так... ща\", \"секундочку...\", \"ща вернусь...\", \"уан момент...\"][Math.floor(Math.random() * 9)] }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2896,
+        240
+      ],
+      "id": "860aceae-63bf-4e10-94a3-3853640c4dd9",
+      "name": "Telegram2",
+      "webhookId": "ae3bac12-25a8-4644-bf11-26e5a03cd7a4",
+      "alwaysOutputData": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uHY5pArRdG2wu3Z4",
+          "name": "Producer Cult Bot"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n\t\"code\": \"bz16\",\n\t\"text\": \"Your answer\"\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        3664,
+        624
+      ],
+      "id": "f2050f12-d7cc-4f94-a2e8-4023425650b3",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1e06c950-334f-49fd-ba71-d62117912e0c",
+              "leftValue": "={{ $json.output.code }}",
+              "rightValue": "ff28",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3760,
+        448
+      ],
+      "id": "c4207f28-c9a3-40b1-8cfe-b335df575dcf",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "get_status",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        400,
+        1280
+      ],
+      "id": "8a443512-bb5a-4311-97f0-b710f41f6ac0",
+      "name": "Webhook",
+      "webhookId": "609d3779-78f1-4aa0-ade8-d1050ee15cfb",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9aff9236-51f0-4445-8d74-c530df7e941e",
+              "name": "code",
+              "value": "dd28",
+              "type": "string"
+            },
+            {
+              "id": "fa9c28aa-272e-4d5e-be27-2a7cc7858164",
+              "name": "prompt",
+              "value": "=# ЗАДАЧИ\n\n1. Предоставить информацию о статусе проекта. \n2. Верно выставить технический код.\n\n## ИНСТРУКЦИИ ПО СТАТУСУ ПРОЕКТА\n\nОбработай информацию о статусе по проекту, \nучитывая текущее время и дату.\n\nПредоставь информацию по статусу проекта в том виде, в котором она представлена ниже. Добавь эмоджи только в названия каждого отдела.\n\nПосле того, как ты дашь мне информацию, задай мне вопрос: \"Все ли верно? Если какая-то информация неточная, пожалуйста, укажи, что нужно подправить\"\n\n\n### Информация о проекте\n\nНазвание проекта:\n{{ $('Loop Over Items').first().json.project_name }}\n\nИнформация о статусе проекта в структурированном виде:\n{{ $('Loop Over Items').first().json.client_status }}\n\n\n## Инструкции по установке кода\nКод, который тебе дается - это техническая информация. Тебе не нужно передавать пользователю никакой информации о коде, тебе просто нужно установить поле \"code\" с правильным значением кода.",
+              "type": "string"
+            },
+            {
+              "id": "1a1807cf-2ac6-44c5-9284-a6cdb516948b",
+              "name": "sobesednik_id",
+              "value": "={{ $('Set Producer TG Chat IDs').first().json.producer1 }}",
+              "type": "string"
+            },
+            {
+              "id": "96d38bdd-fa43-44b8-99ff-3cf4fb4d3381",
+              "name": "model",
+              "value": "anthropic/claude-sonnet-4",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2832,
+        1152
+      ],
+      "id": "8111087e-3d08-4ddc-b20e-c016891a31cf",
+      "name": "Status Mode"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "producers",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "producer_id",
+              "keyValue": "={{ $('set producer').first().json.producer_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1888,
+        1408
+      ],
+      "id": "7da62bd2-fe3d-408e-bede-15fc10534a67",
+      "name": "Get_Producer1",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "producers",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "producer_id",
+              "keyValue": "={{ $('Loop Over Items').first().json.producer2 }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2144,
+        1408
+      ],
+      "id": "bcf64aa6-22da-49c4-bbfd-07d637e18f34",
+      "name": "Get_Producer2",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      },
+      "disabled": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "producers",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "producer_id",
+              "keyValue": "={{ $('Loop Over Items').first().json.producer3 }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2304,
+        1408
+      ],
+      "id": "73ecbafd-e72a-480e-919b-7cb473d98ff0",
+      "name": "Get_Producer3",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      },
+      "disabled": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9aff9236-51f0-4445-8d74-c530df7e941e",
+              "name": "producer1",
+              "value": "={{ $('Get_Producer1').first().json.producer_tg_chat_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2480,
+        1408
+      ],
+      "id": "d793ba0b-6222-489d-a2cb-453711dffe70",
+      "name": "Set Producer TG Chat IDs"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Set Producer TG Chat IDs').first().json.producer1 }}",
+        "text": "={{ $json.output }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        4352,
+        1120
+      ],
+      "id": "a01636d4-dc70-4958-b054-3315b773cf90",
+      "name": "Send to prod 1",
+      "webhookId": "ae3bac12-25a8-4644-bf11-26e5a03cd7a4",
+      "alwaysOutputData": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uHY5pArRdG2wu3Z4",
+          "name": "Producer Cult Bot"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 10
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        432,
+        1472
+      ],
+      "id": "07fade27-c51c-494d-8652-b980f2efc2ae",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Получаем входные данные в правильном формате\n// Проверяем разные возможные структуры данных\nlet inputText;\n\ntry {\n    // Пробуем разные варианты структуры данных\n    const input = $(\"AI Agent\").first().json;\n    \n    if (input.output && input.output.text) {\n        inputText = input.output.text;\n    } else if (input.output && typeof input.output === 'string') {\n        inputText = input.output;\n    } else if (typeof input === 'string') {\n        inputText = input;\n    } else {\n        throw new Error('Неизвестная структура данных');\n    }\n} catch (error) {\n    // Если не можем получить данные, возвращаем ошибку\n    return {\n        error: \"Не удалось получить текст из входных данных: \" + error.message,\n        output: \"Ошибка обработки данных\"\n    };\n}\n\n/**\n * Функция для экранирования специальных символов MarkdownV2\n * В MarkdownV2 эти символы должны быть экранированы: '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'\n */\nfunction escapeMarkdownV2(text) {\n    // Порядок важен! Сначала экранируем обратный слэш\n    let escaped = text.replace(/\\\\/g, '\\\\\\\\');\n    \n    // Затем экранируем остальные специальные символы\n    escaped = escaped.replace(/_/g, '\\\\_');     // Подчеркивание\n    escaped = escaped.replace(/\\*/g, '\\\\*');    // Звездочка\n    escaped = escaped.replace(/\\[/g, '\\\\[');    // Открывающая квадратная скобка\n    escaped = escaped.replace(/\\]/g, '\\\\]');    // Закрывающая квадратная скобка\n    escaped = escaped.replace(/\\(/g, '\\\\(');    // Открывающая круглая скобка\n    escaped = escaped.replace(/\\)/g, '\\\\)');    // Закрывающая круглая скобка\n    escaped = escaped.replace(/~/g, '\\\\~');     // Тильда\n    escaped = escaped.replace(/`/g, '\\\\`');     // Обратная кавычка\n    escaped = escaped.replace(/>/g, '\\\\>');     // Больше\n    escaped = escaped.replace(/#/g, '\\\\#');     // Решетка\n    escaped = escaped.replace(/\\+/g, '\\\\+');    // Плюс\n    escaped = escaped.replace(/-/g, '\\\\-');     // Минус\n    escaped = escaped.replace(/=/g, '\\\\=');     // Равно\n    escaped = escaped.replace(/\\|/g, '\\\\|');    // Вертикальная черта\n    escaped = escaped.replace(/\\{/g, '\\\\{');    // Открывающая фигурная скобка\n    escaped = escaped.replace(/\\}/g, '\\\\}');    // Закрывающая фигурная скобка\n    escaped = escaped.replace(/\\./g, '\\\\.');    // Точка\n    escaped = escaped.replace(/!/g, '\\\\!');     // Восклицательный знак\n    \n    return escaped;\n}\n\n/**\n * Функция для применения форматирования MarkdownV2\n */\nfunction applyMarkdownV2Formatting(text) {\n    let processedText = text;\n    \n    // Заменяем заголовки на жирный текст (от более длинных к коротким)\n    // ### заголовок -> *заголовок*\n    processedText = processedText.replace(/^###\\s+(.+)$/gm, '*$1*');\n    \n    // ## заголовок -> *заголовок*  \n    processedText = processedText.replace(/^##\\s+(.+)$/gm, '*$1*');\n    \n    // # заголовок -> *заголовок*\n    processedText = processedText.replace(/^#\\s+(.+)$/gm, '*$1*');\n    \n    // Заменяем жирный текст: **текст** -> *текст*\n    processedText = processedText.replace(/\\*\\*(.+?)\\*\\*/g, '*$1*');\n    \n    // Заменяем курсив: *текст* -> _текст_ (только одиночные звездочки, не входящие в пары)\n    // Используем отрицательные lookbehind и lookahead для избежания конфликтов\n    processedText = processedText.replace(/(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)/g, '_$1_');\n    \n    return processedText;\n}\n\n/**\n * Основная функция обработки\n */\nfunction processTextForTelegramMarkdownV2(inputText) {\n    // 1. Сначала применяем форматирование\n    let processedText = applyMarkdownV2Formatting(inputText);\n    \n    // 2. Теперь разбиваем текст на форматированные и обычные части\n    const parts = [];\n    let currentIndex = 0;\n    \n    // Регекс для поиска всех форматированных областей\n    const formattedRegex = /(\\*[^*\\n]+?\\*|_[^_\\n]+?_|`[^`\\n]*?`|```[\\s\\S]*?```)/g;\n    let match;\n    \n    while ((match = formattedRegex.exec(processedText)) !== null) {\n        // Добавляем обычный текст до форматированной области\n        if (match.index > currentIndex) {\n            const plainText = processedText.substring(currentIndex, match.index);\n            parts.push({ type: 'plain', text: plainText });\n        }\n        \n        // Добавляем форматированную область\n        parts.push({ type: 'formatted', text: match[0] });\n        currentIndex = match.index + match[0].length;\n    }\n    \n    // Добавляем оставшийся текст\n    if (currentIndex < processedText.length) {\n        const plainText = processedText.substring(currentIndex);\n        parts.push({ type: 'plain', text: plainText });\n    }\n    \n    // 3. Экранируем символы\n    const finalText = parts.map(part => {\n        if (part.type === 'plain') {\n            // Обычный текст - экранируем все специальные символы\n            return escapeMarkdownV2(part.text);\n        } else {\n            // Форматированный текст - экранируем только содержимое\n            if (part.text.startsWith('*') && part.text.endsWith('*') && part.text.length > 2) {\n                // Жирный текст: *содержимое*\n                const content = part.text.slice(1, -1);\n                return '*' + escapeMarkdownV2(content) + '*';\n            } else if (part.text.startsWith('_') && part.text.endsWith('_') && part.text.length > 2) {\n                // Курсив: _содержимое_\n                const content = part.text.slice(1, -1);\n                return '_' + escapeMarkdownV2(content) + '_';\n            } else if (part.text.startsWith('`') && part.text.endsWith('`') && !part.text.startsWith('```')) {\n                // Инлайн код: `содержимое`\n                const content = part.text.slice(1, -1);\n                // В коде экранируем только \\ и `\n                const escapedContent = content.replace(/\\\\/g, '\\\\\\\\').replace(/`/g, '\\\\`');\n                return '`' + escapedContent + '`';\n            } else if (part.text.startsWith('```') && part.text.endsWith('```')) {\n                // Блок кода: ```содержимое```\n                const content = part.text.slice(3, -3);\n                // В блоке кода экранируем только \\ и `\n                const escapedContent = content.replace(/\\\\/g, '\\\\\\\\').replace(/`/g, '\\\\`');\n                return '```' + escapedContent + '```';\n            }\n            // Если не распознали тип, возвращаем как есть (не должно происходить)\n            return part.text;\n        }\n    }).join('');\n    \n    return finalText;\n}\n\n// Обрабатываем текст\nconst processedText = processTextForTelegramMarkdownV2(inputText);\n\n// Возвращаем результат\nreturn {\n    output: processedText\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4000,
+        448
+      ],
+      "id": "58e2fe07-bc9e-4e29-8ac5-132bd12a3919",
+      "name": "Markdown V2 formatting"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Получаем входные данные в правильном формате\n// Проверяем разные возможные структуры данных\nlet inputText;\n\ntry {\n    // Пробуем разные варианты структуры данных\n    const input = $(\"AI Agent\").first().json;\n    \n    if (input.output && input.output.text) {\n        inputText = input.output.text;\n    } else if (input.output && typeof input.output === 'string') {\n        inputText = input.output;\n    } else if (typeof input === 'string') {\n        inputText = input;\n    } else {\n        throw new Error('Неизвестная структура данных');\n    }\n} catch (error) {\n    // Если не можем получить данные, возвращаем ошибку\n    return {\n        error: \"Не удалось получить текст из входных данных: \" + error.message,\n        output: \"Ошибка обработки данных\"\n    };\n}\n\n/**\n * Функция для экранирования специальных символов MarkdownV2\n * В MarkdownV2 эти символы должны быть экранированы: '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'\n */\nfunction escapeMarkdownV2(text) {\n    // Порядок важен! Сначала экранируем обратный слэш\n    let escaped = text.replace(/\\\\/g, '\\\\\\\\');\n    \n    // Затем экранируем остальные специальные символы\n    escaped = escaped.replace(/_/g, '\\\\_');     // Подчеркивание\n    escaped = escaped.replace(/\\*/g, '\\\\*');    // Звездочка\n    escaped = escaped.replace(/\\[/g, '\\\\[');    // Открывающая квадратная скобка\n    escaped = escaped.replace(/\\]/g, '\\\\]');    // Закрывающая квадратная скобка\n    escaped = escaped.replace(/\\(/g, '\\\\(');    // Открывающая круглая скобка\n    escaped = escaped.replace(/\\)/g, '\\\\)');    // Закрывающая круглая скобка\n    escaped = escaped.replace(/~/g, '\\\\~');     // Тильда\n    escaped = escaped.replace(/`/g, '\\\\`');     // Обратная кавычка\n    escaped = escaped.replace(/>/g, '\\\\>');     // Больше\n    escaped = escaped.replace(/#/g, '\\\\#');     // Решетка\n    escaped = escaped.replace(/\\+/g, '\\\\+');    // Плюс\n    escaped = escaped.replace(/-/g, '\\\\-');     // Минус\n    escaped = escaped.replace(/=/g, '\\\\=');     // Равно\n    escaped = escaped.replace(/\\|/g, '\\\\|');    // Вертикальная черта\n    escaped = escaped.replace(/\\{/g, '\\\\{');    // Открывающая фигурная скобка\n    escaped = escaped.replace(/\\}/g, '\\\\}');    // Закрывающая фигурная скобка\n    escaped = escaped.replace(/\\./g, '\\\\.');    // Точка\n    escaped = escaped.replace(/!/g, '\\\\!');     // Восклицательный знак\n    \n    return escaped;\n}\n\n/**\n * Функция для применения форматирования MarkdownV2\n */\nfunction applyMarkdownV2Formatting(text) {\n    let processedText = text;\n    \n    // Заменяем заголовки на жирный текст (от более длинных к коротким)\n    // ### заголовок -> *заголовок*\n    processedText = processedText.replace(/^###\\s+(.+)$/gm, '*$1*');\n    \n    // ## заголовок -> *заголовок*  \n    processedText = processedText.replace(/^##\\s+(.+)$/gm, '*$1*');\n    \n    // # заголовок -> *заголовок*\n    processedText = processedText.replace(/^#\\s+(.+)$/gm, '*$1*');\n    \n    // Заменяем жирный текст: **текст** -> *текст*\n    processedText = processedText.replace(/\\*\\*(.+?)\\*\\*/g, '*$1*');\n    \n    // Заменяем курсив: *текст* -> _текст_ (только одиночные звездочки, не входящие в пары)\n    // Используем отрицательные lookbehind и lookahead для избежания конфликтов\n    processedText = processedText.replace(/(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)/g, '_$1_');\n    \n    return processedText;\n}\n\n/**\n * Основная функция обработки\n */\nfunction processTextForTelegramMarkdownV2(inputText) {\n    // 1. Сначала применяем форматирование\n    let processedText = applyMarkdownV2Formatting(inputText);\n    \n    // 2. Теперь разбиваем текст на форматированные и обычные части\n    const parts = [];\n    let currentIndex = 0;\n    \n    // Регекс для поиска всех форматированных областей\n    const formattedRegex = /(\\*[^*\\n]+?\\*|_[^_\\n]+?_|`[^`\\n]*?`|```[\\s\\S]*?```)/g;\n    let match;\n    \n    while ((match = formattedRegex.exec(processedText)) !== null) {\n        // Добавляем обычный текст до форматированной области\n        if (match.index > currentIndex) {\n            const plainText = processedText.substring(currentIndex, match.index);\n            parts.push({ type: 'plain', text: plainText });\n        }\n        \n        // Добавляем форматированную область\n        parts.push({ type: 'formatted', text: match[0] });\n        currentIndex = match.index + match[0].length;\n    }\n    \n    // Добавляем оставшийся текст\n    if (currentIndex < processedText.length) {\n        const plainText = processedText.substring(currentIndex);\n        parts.push({ type: 'plain', text: plainText });\n    }\n    \n    // 3. Экранируем символы\n    const finalText = parts.map(part => {\n        if (part.type === 'plain') {\n            // Обычный текст - экранируем все специальные символы\n            return escapeMarkdownV2(part.text);\n        } else {\n            // Форматированный текст - экранируем только содержимое\n            if (part.text.startsWith('*') && part.text.endsWith('*') && part.text.length > 2) {\n                // Жирный текст: *содержимое*\n                const content = part.text.slice(1, -1);\n                return '*' + escapeMarkdownV2(content) + '*';\n            } else if (part.text.startsWith('_') && part.text.endsWith('_') && part.text.length > 2) {\n                // Курсив: _содержимое_\n                const content = part.text.slice(1, -1);\n                return '_' + escapeMarkdownV2(content) + '_';\n            } else if (part.text.startsWith('`') && part.text.endsWith('`') && !part.text.startsWith('```')) {\n                // Инлайн код: `содержимое`\n                const content = part.text.slice(1, -1);\n                // В коде экранируем только \\ и `\n                const escapedContent = content.replace(/\\\\/g, '\\\\\\\\').replace(/`/g, '\\\\`');\n                return '`' + escapedContent + '`';\n            } else if (part.text.startsWith('```') && part.text.endsWith('```')) {\n                // Блок кода: ```содержимое```\n                const content = part.text.slice(3, -3);\n                // В блоке кода экранируем только \\ и `\n                const escapedContent = content.replace(/\\\\/g, '\\\\\\\\').replace(/`/g, '\\\\`');\n                return '```' + escapedContent + '```';\n            }\n            // Если не распознали тип, возвращаем как есть (не должно происходить)\n            return part.text;\n        }\n    }).join('');\n    \n    return finalText;\n}\n\n// Обрабатываем текст\nconst processedText = processTextForTelegramMarkdownV2(inputText);\n\n// Возвращаем результат\nreturn {\n    output: processedText\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4128,
+        1120
+      ],
+      "id": "cdf95132-d65f-4c87-91d8-46ab1c7c4d27",
+      "name": "Markdown V2 formatting2"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "272756ad-bd57-49be-bc62-434f13c086a5",
+              "name": "model",
+              "value": "anthropic/claude-sonnet-4",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2368,
+        288
+      ],
+      "id": "de4e8dad-4161-4ce7-9956-f92b0366991d",
+      "name": "set Model Hard"
+    },
+    {
+      "parameters": {
+        "content": "Проверка количества символов в выдаче",
+        "height": 120,
+        "width": 150
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        4352,
+        304
+      ],
+      "typeVersion": 1,
+      "id": "57dd64f5-5421-4291-8cb6-7dccda2a871d",
+      "name": "Sticky Note14"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Получаем текст из $json.output\nconst text = $('Markdown V2 formatting').first().json.output || '';\n\n// Подсчитываем количество символов\nconst charCount = text.length;\n\n// Проверяем условие (больше 4090 = false, меньше или равно 4090 = true)\nconst result = charCount <= 4090;\n\n// Возвращаем результат\nreturn {\n  json: {\n    result: result,\n    size: charCount\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4384,
+        448
+      ],
+      "id": "f286a4b1-cd04-4db6-bf1f-14a57a51dd40",
+      "name": "If_more_4090"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "97f06e85-97e9-46bc-8440-1e0aed8aaf16",
+              "leftValue": "= {{ $json.result }}",
+              "rightValue": "false",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4608,
+        432
+      ],
+      "id": "e6decca2-44d5-4a2e-a5e7-f35fbca793bd",
+      "name": "If3"
+    },
+    {
+      "parameters": {
+        "content": "Если небольшое сообщение",
+        "height": 120,
+        "width": 150
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        4736,
+        192
+      ],
+      "typeVersion": 1,
+      "id": "aa35b611-68a2-4430-bbdf-f347d3accdec",
+      "name": "Sticky Note15"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.from.id }}",
+        "text": "сейчас напишу много текста",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        4896,
+        448
+      ],
+      "id": "012297ed-4502-4fec-b15c-7c14ee3c0246",
+      "name": "Telegram6",
+      "webhookId": "ae3bac12-25a8-4644-bf11-26e5a03cd7a4",
+      "alwaysOutputData": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uHY5pArRdG2wu3Z4",
+          "name": "Producer Cult Bot"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.from.id }}",
+        "text": "={{ $('Divide').first().json.part1 }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        5376,
+        448
+      ],
+      "id": "b4051b7c-3a39-4686-844e-68d9455465c5",
+      "name": "Telegram7",
+      "webhookId": "ae3bac12-25a8-4644-bf11-26e5a03cd7a4",
+      "alwaysOutputData": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uHY5pArRdG2wu3Z4",
+          "name": "Producer Cult Bot"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.from.id }}",
+        "text": "={{ $('Divide').first().json.part2 }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        5600,
+        448
+      ],
+      "id": "1c49e4d1-01bd-45b2-8496-59ee46ac43f7",
+      "name": "Telegram8",
+      "webhookId": "ae3bac12-25a8-4644-bf11-26e5a03cd7a4",
+      "alwaysOutputData": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uHY5pArRdG2wu3Z4",
+          "name": "Producer Cult Bot"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.from.id }}",
+        "text": "={{ $('Divide').first().json.part3 }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        5824,
+        448
+      ],
+      "id": "317a0943-05d5-4c00-8460-98439d14dde1",
+      "name": "Telegram9",
+      "webhookId": "ae3bac12-25a8-4644-bf11-26e5a03cd7a4",
+      "alwaysOutputData": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uHY5pArRdG2wu3Z4",
+          "name": "Producer Cult Bot"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.from.id }}",
+        "text": "={{ $('Divide').first().json.part4 }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        6016,
+        448
+      ],
+      "id": "c847f88d-b4cc-4cac-80b2-ee0566fa063b",
+      "name": "Telegram10",
+      "webhookId": "ae3bac12-25a8-4644-bf11-26e5a03cd7a4",
+      "alwaysOutputData": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uHY5pArRdG2wu3Z4",
+          "name": "Producer Cult Bot"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Получаем текст из указанной ноды\nconst text = $('Markdown V2 formatting').first().json.output || '';\nconst maxLength = 4070;\n\n// Функция для разделения текста на части\nfunction splitText(inputText, partNumber = 1) {\n  const parts = [];\n  let remainingText = inputText;\n  let currentPartNumber = partNumber;\n  \n  while (remainingText.length > maxLength) {\n    // Ищем место для разделения (последний пробел до позиции maxLength)\n    let splitPosition = maxLength;\n    \n    // Ищем последний пробел, новую строку или другой разделитель перед позицией maxLength\n    while (splitPosition > 0) {\n      const char = remainingText[splitPosition];\n      if (char === ' ' || char === '\\n' || char === '\\t' || char === '\\r') {\n        break;\n      }\n      splitPosition--;\n    }\n    \n    // Если не нашли подходящее место для разделения, используем maxLength\n    if (splitPosition === 0) {\n      splitPosition = maxLength;\n    }\n    \n    // Создаем текущую часть\n    const currentPart = remainingText.substring(0, splitPosition).trim();\n    parts.push({\n      [`part${currentPartNumber}`]: currentPart,\n      [`part${currentPartNumber}_length`]: currentPart.length\n    });\n    \n    // Обновляем оставшийся текст\n    remainingText = remainingText.substring(splitPosition).trim();\n    currentPartNumber++;\n  }\n  \n  // Добавляем последнюю часть, если она есть\n  if (remainingText.length > 0) {\n    parts.push({\n      [`part${currentPartNumber}`]: remainingText,\n      [`part${currentPartNumber}_length`]: remainingText.length\n    });\n  }\n  \n  return parts;\n}\n\n// Разделяем текст\nconst parts = splitText(text);\n\n// Создаем итоговый объект\nconst result = {\n  total_parts: parts.length,\n  original_length: text.length\n};\n\n// Добавляем все части в результат\nparts.forEach(part => {\n  Object.assign(result, part);\n});\n\n// Возвращаем результат\nreturn {\n  json: result\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5120,
+        448
+      ],
+      "id": "ce9ca44f-6549-4db5-b7f2-526a9683941a",
+      "name": "Divide"
+    },
+    {
+      "parameters": {
+        "content": "Тут лежит главный системный промпт",
+        "height": 80,
+        "width": 190
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        3040,
+        128
+      ],
+      "typeVersion": 1,
+      "id": "25b7be9d-b950-47f1-a9d5-804a8314ab1b",
+      "name": "Sticky Note12"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "last_message",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "1"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "text",
+              "fieldValue": "={{ $('Markdown V2 formatting').first().json.output }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        4208,
+        448
+      ],
+      "id": "0ea62d5c-5e00-47b8-a89e-0ddf83c08934",
+      "name": "Last Message Update",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "Продюсерская ветка и полный доступ",
+        "height": 80,
+        "width": 160
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2688,
+        368
+      ],
+      "typeVersion": 1,
+      "id": "ed7f7580-6f63-4d75-a274-ad802e2cb87b",
+      "name": "Sticky Note16"
+    },
+    {
+      "parameters": {
+        "content": "Клиентская ветка",
+        "height": 80,
+        "width": 150
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2704,
+        -64
+      ],
+      "typeVersion": 1,
+      "id": "d7979138-7b45-4bd6-bb18-7c2be3bf286b",
+      "name": "Sticky Note17"
+    },
+    {
+      "parameters": {
+        "content": "Модуль авторизации",
+        "height": 80
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -48,
+        -192
+      ],
+      "typeVersion": 1,
+      "id": "f863ec27-bb61-477f-a8b2-4df3ee2ea20c",
+      "name": "Sticky Note19"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "producers",
+        "filterType": "string"
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        464,
+        240
+      ],
+      "id": "7095fcbe-5f19-4b82-9d5d-00ec8c964f6a",
+      "name": "Get all producers",
+      "executeOnce": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "clients"
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        640,
+        240
+      ],
+      "id": "05323daf-e1d9-47a0-a433-756af09a1b7d",
+      "name": "Get all clients",
+      "executeOnce": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "clients",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "client_chat_id",
+              "keyValue": "={{ $('Telegram Trigger').first().json.message.from.id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1424,
+        32
+      ],
+      "id": "66246281-60f5-4c28-9e90-b2ec86daafe4",
+      "name": "Get client",
+      "alwaysOutputData": false,
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "Соединяем вместе содержимое полей и названия полей",
+        "height": 120,
+        "width": 150
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1872,
+        128
+      ],
+      "typeVersion": 1,
+      "id": "ff0f8967-c735-485e-a2a5-022ae1dfe309",
+      "name": "Sticky Note10"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2bce6625-e1a8-4ed7-afda-c9caaa9556a5",
+              "leftValue": "={{ $('Is client or producer or full access').first().json.user_type }}",
+              "rightValue": "client",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2704,
+        160
+      ],
+      "id": "ea3e2559-9eeb-4c6e-8ca8-8cb0d5ec63f3",
+      "name": "If4"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.from.id }}",
+        "text": "={{ [\"сек...\", \"думаю...\", \"сейчас отвечу\", \"момент...\", \"соображаю...\", \"секундочку...\", \"буду через мновенье...\", \"уан момент...\"][Math.floor(Math.random() * 8)] }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2880,
+        -16
+      ],
+      "id": "c946bf75-35f9-4118-8c57-b0424edcf0c7",
+      "name": "Telegram11",
+      "webhookId": "ae3bac12-25a8-4644-bf11-26e5a03cd7a4",
+      "alwaysOutputData": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "uHY5pArRdG2wu3Z4",
+          "name": "Producer Cult Bot"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9aff9236-51f0-4445-8d74-c530df7e941e",
+              "name": "code",
+              "value": "az16",
+              "type": "string"
+            },
+            {
+              "id": "fa9c28aa-272e-4d5e-be27-2a7cc7858164",
+              "name": "prompt",
+              "value": "=## Роль\n\nТы продюсерский ассистент, который помогает отслеживать статус проектов и предоставлять актуальную информацию по всем этапам производства. Ты общаешься от лица женщины.\n\n## Основные задачи\n1. **Предоставление статуса проекта** - анализировать данные проекта и предоставлять четкие, структурированные отчеты по всем позициям\n2. **Обновление статусов** - принимать изменения от пользователей и обновлять соответствующие поля проекта\n3. Техническая задача: устанавливать правильный код.\n\n\n## Принципы работы\n\n### При предоставлении статуса проекта\n1. При запросе статуса проекта возьми только информацию из поля `client_status`. Будь краток. Эмоджи используй только в названиях разделов.\n\n2. При запросе деталей или более подробного статуса используй всю остальную информацию.\n3. **Выделяй критичные моменты** - срочные дедлайны, нерешенные вопросы, ожидающие решения\n4. **Показывай прогресс** - что готово, что в работе, что ожидает утверждения\n5. **Указывай следующие шаги** по каждому активному направлению\n6. **Группируй похожие задачи** - не дублируй информацию, объединяй связанные вопросы\n7. **Игнорируй null значения** - не упоминай поля, которые равны null или содержат \"Не могу определить статус\"\n8. Не нужно выдавать пользователю вот эти поля:\n`project_id` - ID проекта\n`producer_id` - ID продюсера\n`client_id` - ID клиента\n`stage` - текущий этап (пре-продакшн/продакшн/пост-продакшн)\n`type` - тип проекта\n9. Говори на русском языке. Общайся от лица женщины.\n10. Если проект на стадии postproduction, тогда нужно выдавать только поля из группы **Пост-продакшн:**\nЕсли есть незакрытые проблемы со стадии пре-продакшн или со стадии съемок, в конце ответа кратко сформулируй эти проблемы. \n11. Если это проект с типом Full CG, тогда вместо полей **Пре-продакшн:** выдавай только поля **Full CG продакшн:**\n12. Заканчивай выдачу предложением дать больше деталей. Например: \"Хочешь, более подробно расскажу тебе про проблемы в этом проекте?\"\n\n\n### При получении информации от пользователя об обновлении статусов\n1. **Подтверждай новое значение** статуса\n2. **Подтверждай изменение** пользователю после обновления\n\n### Установка кода\nКод, который тебе дается - это техническая информация. Тебе не нужно передавать пользователю никакую информацию о коде, тебе просто нужно установить поле \"code\" с правильным значением кода.\n\n## Стиль общения\n- **Профессиональный, но дружелюбный тон**\n- **Будь спокойным в выражениях**. Избегай слов \"СРОЧНО\" \"КРИТИЧНО\", избегай написания только заглавными буквами. Используй более мягкие формулировки, например: \"Важно поскорее:\" или \"Достаточно критично:\"\n- **Краткость и ясность** - избегай воды в тексте\n- **Внимание к деталям** - замечай важные нюансы и дедлайны\n- Используй эмодзи только в заголовках разделов\n\n## Структура данных проекта\n\nТы получаешь информацию о проекте в следующих полях:\n\n**Общая информация:**\n- `project_id` - ID проекта\n- `producer_id` - ID продюсера\n- `client_id` - ID клиента\n- `project_name` - название проекта\n- `status` - общий статус проекта (активный/завершен/приостановлен)\n- `stage` - текущий этап (пре-продакшн/продакшн/пост-продакшн)\n- `type` - тип проекта\n\n**Документооборот:**\n- `doc` - статус договоров и документов\n- `act` - статус актов выполненных работ\n- `docs_status` - общий статус документооборота\n\n**Пре-продакшн:**\n- `storyboard_client` - статус раскадровки со стороны клиента\n- `storyboard_cult` - статус раскадровки со стороны Cult\n- `storyboard_next_step` - следующие шаги по раскадровке\n- `casting_client` - статус кастинга со стороны клиента\n- `casting_cult` - статус кастинга со стороны Cult\n- `casting_next_step` - следующие шаги по кастингу\n- `clothes_client` - статус костюмов со стороны клиента\n- `clothes_cult` - статус костюмов со стороны Cult\n- `clothes_next_step` - следующие шаги по костюмам\n- `props_client` - статус реквизита со стороны клиента\n- `props_cult` - статус реквизита со стороны Cult\n- `props_next_step` - следующие шаги по реквизиту\n- `location_client` - статус локации со стороны клиента\n- `location_cult` - статус локации со стороны Cult\n- `location_next_step` - следующие шаги по локации\n\n**Full CG продакшн:**\n- `animatic_client` - статус аниматика со стороны клиента\n- `animatic_cult` - статус аниматика со стороны Cult\n- `animatic_next_steps` - следующие шаги по аниматику\n- `modelling_client` - статус моделирования со стороны клиента\n- `modelling_cult` - статус моделирования со стороны Cult\n- `modelling_next_steps` - следующие шаги по моделированию\n- `styleshots_client` - статус стайлшотов со стороны клиента\n- `styleshots_cult` - статус стайлшотов со стороны Cult\n- `styleshots_next_steps` - следующие шаги по стайлшотам\n- `animation_client` - статус анимации со стороны клиента\n- `animation_cult` - статус анимации со стороны Cult\n- `animation_next_steps` - следующие шаги по анимации\n\n**Пост-продакшн:**\n- `editing_client` - статус монтажа со стороны клиента\n- `editing_cult` - статус монтажа со стороны Cult\n- `editing_next_step` - следующие шаги по монтажу\n- `music_client` - статус музыки со стороны клиента\n- `music_cult` - статус музыки со стороны Cult\n- `music_next_step` - следующие шаги по музыке\n- `vo_client` - статус озвучки со стороны клиента\n- `vo_cult` - статус озвучки со стороны Cult\n- `vo_next_step` - следующие шаги по озвучке\n- `colorgrading_client` - статус цветокоррекции со стороны клиента\n- `colorgrading_cult` - статус цветокоррекции со стороны Cult\n- `colorgrading_next_step` - следующие шаги по цветокоррекции\n- `photos_client` - статус фотосъемки со стороны клиента\n- `photos_cult` - статус фотосъемки со стороны Cult\n- `photos_next_step` - следующие шаги по фотосъемке\n- `cg_client` - статус компьютерной графики со стороны клиента\n- `cg_cult` - статус компьютерной графики со стороны Cult\n- `cg_next_step` - следующие шаги по компьютерной графике\n\n**Клиент:**\n- `client_status` - обобщенный статус по клиенту\n\n## Доступные инструменты\n\n1. **Set_status** - для изменения статуса поля проекта\n   - Параметры: project_id, field_name, new_value\n   - Используй точные названия полей из структуры данных\n**ВАЖНО** Используй этот инструмент каждый раз, когда пользователь просит что-то изменить. Изменяй все задействованные поля. Например, если пользователь просит изменить какие-то детали в поле client_status, также вноси изменения в поле конкретного аспекта. Если есть изменения в поле конкретного аспекта, информация в поле client_status также должна быть обновлена соответственно.\n\n\n\n## СООБЩЕНИЕ ОТ ПОЛЬЗОВАТЕЛЯ\n\n{{ $('Set_user_message').first().json.user_message }} \n\n\n## ДЕТАЛЬНАЯ ИНФОРМАЦИЯ ПО ПРОЕКТАМ \n\n{{ $('Code').first().json.projects_details }}",
+              "type": "string"
+            },
+            {
+              "id": "461724f8-94c7-47c7-8c03-54d4584be486",
+              "name": "sobesednik_id",
+              "value": "={{ $('Telegram Trigger').first().json.message.from.id }}",
+              "type": "string"
+            },
+            {
+              "id": "414199a4-03bc-493a-8ff2-03b336639a68",
+              "name": "model",
+              "value": "={{ $('set Model Hard').first().json.model }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3088,
+        256
+      ],
+      "id": "2bb50d2d-a031-4af7-920c-153343fda625",
+      "name": "Normal Mode Hard Prod"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9aff9236-51f0-4445-8d74-c530df7e941e",
+              "name": "code",
+              "value": "az16",
+              "type": "string"
+            },
+            {
+              "id": "fa9c28aa-272e-4d5e-be27-2a7cc7858164",
+              "name": "prompt",
+              "value": "=## Роль\n\nТы ассистент аккаунт-менеджера команды Cult. Твоя цель - предоставить клиенту компании качественную информацию о ходе проектов. Ты всегда общаешься с клиентом компании Cult, поэтому будь очень вежлив.\n\n## Основные задачи\n1. **Предоставление статуса проекта** - анализировать данные проекта и предоставлять четкие, структурированные отчеты по всем позициям\n2. Техническая задача: устанавливать правильный код.\n\n\n## Принципы работы\n\n### При предоставлении статуса проекта\n1. При запросе статуса проекта возьми только информацию из поля `client_status`. Будь краток и вежлив. Используй эмоджи только в названиях каждого из разделов. \n2. При запросе деталей или более подробного статуса используй всю остальную информацию.\n3. **Выделяй критичные моменты** - срочные дедлайны, нерешенные вопросы, ожидающие решения\n4. **Показывай прогресс** - что готово, что в работе, что ожидает утверждения.\n5. **Указывай следующие шаги** по каждому активному направлению\n6. **Группируй похожие задачи** - не дублируй информацию, объединяй связанные вопросы\n7. **Игнорируй null значения** - не упоминай поля, которые равны null или содержат \"Не могу определить статус\"\n8. Не нужно выдавать клиенту вот эти поля:\n`project_id` - ID проекта\n`producer_id` - ID продюсера\n`client_id` - ID клиента\n`stage` - текущий этап (пре-продакшн/продакшн/пост-продакшн)\n`type` - тип проекта\n9. Говори на русском языке. Общайся от лица женщины.\n10. Если проект на стадии postproduction, тогда нужно выдавать только поля из группы **Пост-продакшн:**\nЕсли есть незакрытые проблемы со стадии пре-продакшн или со стадии съемок, в конце ответа кратко сформулируй эти проблемы. \n11. Если это проект с типом Full CG, тогда вместо полей **Пре-продакшн:** выдавай только поля **Full CG продакшн:**\n12. Заканчивай выдачу предложением при желании клиента дать больше деталей. Например: \"Хочешь, более подробно расскажу тебе про ход работ по поиску локации?\"\n13. Если в проекте есть явные проблемы со стороны продакшена, не говори об этих проблемах в критичном виде. Используй более мягкие формулировки. Вместо \"Критическая проблема\" используй выржаение \"есть сложности с...\" и тому подобное.\n\n\n### При получении информации от клиента о том, что ты ошибаешься или обладаешь неточной информацией\nскажи в ответ \"Большое спасибо за уточнение, я обсужу этот вопрос с продюсером проекта\". Дай понять, что так как ты - искуственный интеллект, ты еще пока только учишься и иногда можешь ошибаться. \n\n### Установка кода\nКод, который тебе дается - это техническая информация. Тебе не нужно передавать пользователю никакую информацию о коде, тебе просто нужно установить поле \"code\" с правильным значением кода.\n\n## Стиль общения\n- **Профессиональный, но дружелюбный тон**\n- **Будь спокойным в выражениях**. Избегай слов \"СРОЧНО\" \"КРИТИЧНО\", избегай написания только заглавными буквами. Используй более мягкие формулировки, например: \"Важно поскорее:\" или \"Достаточно критично:\"\n- **Краткость и ясность** - избегай воды в тексте\n- **Внимание к деталям** - замечай важные нюансы и дедлайны\n- Используй эмодзи только в заголовках разделов\n\n## Структура данных проекта\n\nТы получаешь информацию о проекте в следующих полях:\n\n**Общая информация:**\n- `project_id` - ID проекта\n- `producer_id` - ID продюсера\n- `client_id` - ID клиента\n- `project_name` - название проекта\n- `status` - общий статус проекта (активный/завершен/приостановлен)\n- `stage` - текущий этап (пре-продакшн/продакшн/пост-продакшн)\n- `type` - тип проекта\n\n**Документооборот:**\n- `doc` - статус договоров и документов\n- `act` - статус актов выполненных работ\n- `docs_status` - общий статус документооборота\n\n**Пре-продакшн:**\n- `storyboard_client` - статус раскадровки со стороны клиента\n- `storyboard_cult` - статус раскадровки со стороны Cult\n- `storyboard_next_step` - следующие шаги по раскадровке\n- `casting_client` - статус кастинга со стороны клиента\n- `casting_cult` - статус кастинга со стороны Cult\n- `casting_next_step` - следующие шаги по кастингу\n- `clothes_client` - статус костюмов со стороны клиента\n- `clothes_cult` - статус костюмов со стороны Cult\n- `clothes_next_step` - следующие шаги по костюмам\n- `props_client` - статус реквизита со стороны клиента\n- `props_cult` - статус реквизита со стороны Cult\n- `props_next_step` - следующие шаги по реквизиту\n- `location_client` - статус локации со стороны клиента\n- `location_cult` - статус локации со стороны Cult\n- `location_next_step` - следующие шаги по локации\n\n**Full CG продакшн:**\n- `animatic_client` - статус аниматика со стороны клиента\n- `animatic_cult` - статус аниматика со стороны Cult\n- `animatic_next_steps` - следующие шаги по аниматику\n- `modelling_client` - статус моделирования со стороны клиента\n- `modelling_cult` - статус моделирования со стороны Cult\n- `modelling_next_steps` - следующие шаги по моделированию\n- `styleshots_client` - статус стайлшотов со стороны клиента\n- `styleshots_cult` - статус стайлшотов со стороны Cult\n- `styleshots_next_steps` - следующие шаги по стайлшотам\n- `animation_client` - статус анимации со стороны клиента\n- `animation_cult` - статус анимации со стороны Cult\n- `animation_next_steps` - следующие шаги по анимации\n\n**Пост-продакшн:**\n- `editing_client` - статус монтажа со стороны клиента\n- `editing_cult` - статус монтажа со стороны Cult\n- `editing_next_step` - следующие шаги по монтажу\n- `music_client` - статус музыки со стороны клиента\n- `music_cult` - статус музыки со стороны Cult\n- `music_next_step` - следующие шаги по музыке\n- `vo_client` - статус озвучки со стороны клиента\n- `vo_cult` - статус озвучки со стороны Cult\n- `vo_next_step` - следующие шаги по озвучке\n- `colorgrading_client` - статус цветокоррекции со стороны клиента\n- `colorgrading_cult` - статус цветокоррекции со стороны Cult\n- `colorgrading_next_step` - следующие шаги по цветокоррекции\n- `photos_client` - статус фотосъемки со стороны клиента\n- `photos_cult` - статус фотосъемки со стороны Cult\n- `photos_next_step` - следующие шаги по фотосъемке\n- `cg_client` - статус компьютерной графики со стороны клиента\n- `cg_cult` - статус компьютерной графики со стороны Cult\n- `cg_next_step` - следующие шаги по компьютерной графике\n\n**Клиент:**\n- `client_demands` - что ожидает клиент\n- `client_status` - обобщенный статус по клиенту\n\n\n\n## СООБЩЕНИЕ ОТ ПОЛЬЗОВАТЕЛЯ\n\n{{ $('Set_user_message').first().json.user_message }} \n\n\n## ДЕТАЛЬНАЯ ИНФОРМАЦИЯ ПО ПРОЕКТАМ \n\n{{ $('Code').first().json.projects_details }}\n",
+              "type": "string"
+            },
+            {
+              "id": "461724f8-94c7-47c7-8c03-54d4584be486",
+              "name": "sobesednik_id",
+              "value": "={{ $('Telegram Trigger').first().json.message.from.id }}",
+              "type": "string"
+            },
+            {
+              "id": "414199a4-03bc-493a-8ff2-03b336639a68",
+              "name": "model",
+              "value": "={{ $('set Model Hard').first().json.model }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3088,
+        -16
+      ],
+      "id": "986e58f8-1a12-4994-9f58-e8f92e1b635b",
+      "name": "Normal Mode Hard Client"
+    },
+    {
+      "parameters": {
+        "content": "вся информация по проектам (ТОЛЬКО status = active)",
+        "height": 144,
+        "width": 150
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1648,
+        -160
+      ],
+      "typeVersion": 1,
+      "id": "e41fd559-880a-4ae8-b13f-f56fe1a58de2",
+      "name": "Sticky Note20"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b4357b05-46f9-4f23-a2e7-879e477a558e",
+              "name": "producer_id",
+              "value": "={{ $('Loop Over Items').first().json.producer_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1696,
+        1408
+      ],
+      "id": "77699902-31ad-4390-b655-9216737be461",
+      "name": "set producer"
+    },
+    {
+      "parameters": {
+        "content": "## Режим Daily Status",
+        "height": 80,
+        "width": 160
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        672,
+        1280
+      ],
+      "typeVersion": 1,
+      "id": "6bf2c112-9063-4f72-91ee-8829de52dbb1",
+      "name": "Sticky Note7",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        576,
+        1648
+      ],
+      "id": "35d497ba-b904-4996-8352-16064ce10f7e",
+      "name": "Telegram Trigger1",
+      "webhookId": "a9300df9-1e16-49e7-9f59-d23139dad920",
+      "credentials": {
+        "telegramApi": {
+          "id": "d9VHJ5SbTIXL0x4S",
+          "name": "Debug Bot"
+        }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9aff9236-51f0-4445-8d74-c530df7e941e",
+              "name": "code",
+              "value": "dd28",
+              "type": "string"
+            },
+            {
+              "id": "fa9c28aa-272e-4d5e-be27-2a7cc7858164",
+              "name": "prompt",
+              "value": "=# ЗАДАЧИ\n\n1. Предоставить информацию о статусе проекта. \n2. Верно выставить технический код.\n\n## ИНСТРУКЦИИ ПО СТАТУСУ ПРОЕКТА\n\nОбработай информацию о статусе по проекту, \nучитывая текущее время и дату.\n\nПредоставь информацию по статусу проекта в обработанном виде по шаблону, который указан ниже. Используй эмоджи только в названиях каждого отдела.\n\nПосле того, как ты дашь мне информацию, задай мне вопрос: \"Все ли верно? Если какая-то информация неточная, пожалуйста, укажи, что нужно подправить\"\n\n### Шаблон отчета\n\n\"Название проекта\" - ежедневный статус\n\n- Название раздела в отчете: Утверждения. Смысл: что утвердили вчера.\n- Название раздела в отчете: Сегодня ждем от клиента. Смысл: что сегодня нужно команде Cult от клиента (утвердить, посмотреть, созвониться, быть на связи).\n- Название раздела в отчете: Сегодня пришлем. Смысл раздела: что Cult сегодня пришлет клиенту.\n- Название раздела в отчете: Над чем работаем. Смысл: какие работы в данный момент ведутся командой Cult. \n\n### Информация о проекте\n\nНазвание проекта:\n{{ $('Loop Over Items').first().json.project_name }}\n\nИнформация о статусе проекта в необработанном виде.\n{{ $('Loop Over Items').first().json.client_status }}\n\n\n## Инструкции по установке кода\nКод, который тебе дается - это техническая информация. Тебе не нужно передавать пользователю никакой информации о коде, тебе просто нужно установить поле \"code\" с правильным значением кода.",
+              "type": "string"
+            },
+            {
+              "id": "1a1807cf-2ac6-44c5-9284-a6cdb516948b",
+              "name": "sobesednik_id",
+              "value": "={{ $('Set Producer TG Chat IDs').first().json.producer1 }}",
+              "type": "string"
+            },
+            {
+              "id": "96d38bdd-fa43-44b8-99ff-3cf4fb4d3381",
+              "name": "model",
+              "value": "anthropic/claude-sonnet-4",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3216,
+        1056
+      ],
+      "id": "4cb4a107-dece-46d7-8110-62b535a91486",
+      "name": "Status Mode1",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "Версия статуса Антона Каляки",
+        "height": 80,
+        "width": 160
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        3136,
+        1232
+      ],
+      "typeVersion": 1,
+      "id": "fdc95d25-733d-4b91-9f0a-424f66e78f7a",
+      "name": "Sticky Note11",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9aff9236-51f0-4445-8d74-c530df7e941e",
+              "name": "code",
+              "value": "az16",
+              "type": "string"
+            },
+            {
+              "id": "fa9c28aa-272e-4d5e-be27-2a7cc7858164",
+              "name": "prompt",
+              "value": "=## Роль\n\nТы продюсерский ассистент, который помогает отслеживать статус проектов и предоставлять актуальную информацию по всем этапам производства. Ты общаешься от лица женщины.\n\n## Основные задачи\n1. **Предоставление статуса проекта** - анализировать данные проекта и предоставлять четкие, структурированные отчеты по всем позициям\n2. **Обновление статусов** - принимать изменения от пользователей и обновлять соответствующие поля проекта\n3. Техническая задача: устанавливать правильный код.\n\n\n## Принципы работы\n\n### При предоставлении статуса проекта\n1. При запросе статуса проекта возьми только информацию из поля `client_status`. Будь краток. Используй этот шаблон:\n- Утверждения. Смысл: что утвердили вчера.\n- Название раздела в отчете: Сегодня ждем от клиента. Смысл: что сегодня нужно команде Cult от клиента (утвердить, посмотреть, созвониться, быть на связи).\n- Название раздела в отчете: Сегодня пришлем. Смысл раздела: что Cult сегодня пришлет клиенту.\n- Название раздела в отчете: Над чем работаем. Смысл: какие работы в данный момент ведутся командой Cult. \n\n2. При запросе деталей или более подробного статуса используй всю остальную информацию.\n3. **Выделяй критичные моменты** - срочные дедлайны, нерешенные вопросы, ожидающие решения\n4. **Показывай прогресс** - что готово, что в работе, что ожидает утверждения\n5. **Указывай следующие шаги** по каждому активному направлению\n6. **Группируй похожие задачи** - не дублируй информацию, объединяй связанные вопросы\n7. **Игнорируй null значения** - не упоминай поля, которые равны null или содержат \"Не могу определить статус\"\n8. Не нужно выдавать пользователю вот эти поля:\n`project_id` - ID проекта\n`producer_id` - ID продюсера\n`client_id` - ID клиента\n`stage` - текущий этап (пре-продакшн/продакшн/пост-продакшн)\n`type` - тип проекта\n9. Говори на русском языке. Общайся от лица женщины.\n10. Если проект на стадии postproduction, тогда нужно выдавать только поля из группы **Пост-продакшн:**\nЕсли есть незакрытые проблемы со стадии пре-продакшн или со стадии съемок, в конце ответа кратко сформулируй эти проблемы. \n11. Если это проект с типом Full CG, тогда вместо полей **Пре-продакшн:** выдавай только поля **Full CG продакшн:**\n12. Заканчивай выдачу предложением дать больше деталей. Например: \"Хочешь, более подробно расскажу тебе про проблемы в этом проекте?\"\n\n\n### При получении информации от пользователя об обновлении статусов\n1. **Подтверждай новое значение** статуса\n2. **Подтверждай изменение** пользователю после обновления\n\n### Установка кода\nКод, который тебе дается - это техническая информация. Тебе не нужно передавать пользователю никакую информацию о коде, тебе просто нужно установить поле \"code\" с правильным значением кода.\n\n## Стиль общения\n- **Профессиональный, но дружелюбный тон**\n- **Будь спокойным в выражениях**. Избегай слов \"СРОЧНО\" \"КРИТИЧНО\", избегай написания только заглавными буквами. Используй более мягкие формулировки, например: \"Важно поскорее:\" или \"Достаточно критично:\"\n- **Краткость и ясность** - избегай воды в тексте\n- **Внимание к деталям** - замечай важные нюансы и дедлайны\n- Используй эмодзи только в заголовках разделов\n\n## Структура данных проекта\n\nТы получаешь информацию о проекте в следующих полях:\n\n**Общая информация:**\n- `project_id` - ID проекта\n- `producer_id` - ID продюсера\n- `client_id` - ID клиента\n- `project_name` - название проекта\n- `status` - общий статус проекта (активный/завершен/приостановлен)\n- `stage` - текущий этап (пре-продакшн/продакшн/пост-продакшн)\n- `type` - тип проекта\n\n**Документооборот:**\n- `doc` - статус договоров и документов\n- `act` - статус актов выполненных работ\n- `docs_status` - общий статус документооборота\n\n**Пре-продакшн:**\n- `storyboard_client` - статус раскадровки со стороны клиента\n- `storyboard_cult` - статус раскадровки со стороны Cult\n- `storyboard_next_step` - следующие шаги по раскадровке\n- `casting_client` - статус кастинга со стороны клиента\n- `casting_cult` - статус кастинга со стороны Cult\n- `casting_next_step` - следующие шаги по кастингу\n- `clothes_client` - статус костюмов со стороны клиента\n- `clothes_cult` - статус костюмов со стороны Cult\n- `clothes_next_step` - следующие шаги по костюмам\n- `props_client` - статус реквизита со стороны клиента\n- `props_cult` - статус реквизита со стороны Cult\n- `props_next_step` - следующие шаги по реквизиту\n- `location_client` - статус локации со стороны клиента\n- `location_cult` - статус локации со стороны Cult\n- `location_next_step` - следующие шаги по локации\n\n**Full CG продакшн:**\n- `animatic_client` - статус аниматика со стороны клиента\n- `animatic_cult` - статус аниматика со стороны Cult\n- `animatic_next_steps` - следующие шаги по аниматику\n- `modelling_client` - статус моделирования со стороны клиента\n- `modelling_cult` - статус моделирования со стороны Cult\n- `modelling_next_steps` - следующие шаги по моделированию\n- `styleshots_client` - статус стайлшотов со стороны клиента\n- `styleshots_cult` - статус стайлшотов со стороны Cult\n- `styleshots_next_steps` - следующие шаги по стайлшотам\n- `animation_client` - статус анимации со стороны клиента\n- `animation_cult` - статус анимации со стороны Cult\n- `animation_next_steps` - следующие шаги по анимации\n\n**Пост-продакшн:**\n- `editing_client` - статус монтажа со стороны клиента\n- `editing_cult` - статус монтажа со стороны Cult\n- `editing_next_step` - следующие шаги по монтажу\n- `music_client` - статус музыки со стороны клиента\n- `music_cult` - статус музыки со стороны Cult\n- `music_next_step` - следующие шаги по музыке\n- `vo_client` - статус озвучки со стороны клиента\n- `vo_cult` - статус озвучки со стороны Cult\n- `vo_next_step` - следующие шаги по озвучке\n- `colorgrading_client` - статус цветокоррекции со стороны клиента\n- `colorgrading_cult` - статус цветокоррекции со стороны Cult\n- `colorgrading_next_step` - следующие шаги по цветокоррекции\n- `photos_client` - статус фотосъемки со стороны клиента\n- `photos_cult` - статус фотосъемки со стороны Cult\n- `photos_next_step` - следующие шаги по фотосъемке\n- `cg_client` - статус компьютерной графики со стороны клиента\n- `cg_cult` - статус компьютерной графики со стороны Cult\n- `cg_next_step` - следующие шаги по компьютерной графике\n\n**Клиент:**\n- `client_status` - обобщенный статус по клиенту\n\n## Доступные инструменты\n\n1. **Set_status** - для изменения статуса поля проекта\n   - Параметры: project_id, field_name, new_value\n   - Используй точные названия полей из структуры данных\n**ВАЖНО** Используй этот инструмент каждый раз, когда пользователь просит что-то изменить. Изменяй все задействованные поля. Например, если пользователь просит изменить какие-то детали в поле client_status, также вноси изменения в поле конкретного аспекта. Если есть изменения в поле конкретного аспекта, информация в поле client_status также должна быть обновлена соответственно.\n\n\n\n## СООБЩЕНИЕ ОТ ПОЛЬЗОВАТЕЛЯ\n\nВот твой последний ответ:\n{{ $('Get Last Message').first().json.text }}\n\nИ вот что на это ответил пользователь\n{{ $('Set_user_message').first().json.user_message }} \n\nОтветь на вопрос пользователя с учетом контекста переписки\n\n## ДЕТАЛЬНАЯ ИНФОРМАЦИЯ ПО ПРОЕКТАМ \n\n{{ $('Code').first().json.projects_details }}",
+              "type": "string"
+            },
+            {
+              "id": "461724f8-94c7-47c7-8c03-54d4584be486",
+              "name": "sobesednik_id",
+              "value": "={{ $('Telegram Trigger').first().json.message.from.id }}",
+              "type": "string"
+            },
+            {
+              "id": "414199a4-03bc-493a-8ff2-03b336639a68",
+              "name": "model",
+              "value": "={{ $('set Model Hard').first().json.model }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3440,
+        64
+      ],
+      "id": "436a7dc5-2dc1-45cd-b477-26b39104b66a",
+      "name": "Normal Mode Hard Prod1",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "content": "Тут старые шаблоны отчета от Антона Каляки",
+        "height": 80,
+        "width": 190
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        3600,
+        16
+      ],
+      "typeVersion": 1,
+      "id": "26002757-ce62-476a-b38b-317d6f0860da",
+      "name": "Sticky Note21"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9aff9236-51f0-4445-8d74-c530df7e941e",
+              "name": "code",
+              "value": "az16",
+              "type": "string"
+            },
+            {
+              "id": "fa9c28aa-272e-4d5e-be27-2a7cc7858164",
+              "name": "prompt",
+              "value": "=## Роль\n\nТы ассистент аккаунт-менеджера команды Cult. Твоя цель - предоставить клиенту компании качественную информацию о ходе проектов. Ты всегда общаешься с клиентом компании Cult, поэтому будь очень вежлив.\n\n## Основные задачи\n1. **Предоставление статуса проекта** - анализировать данные проекта и предоставлять четкие, структурированные отчеты по всем позициям\n2. Техническая задача: устанавливать правильный код.\n\n\n## Принципы работы\n\n### При предоставлении статуса проекта\n1. При запросе статуса проекта возьми только информацию из поля `client_status`. Будь краток и вежлив. Используй этот шаблон:\n- Название раздела в отчете: Утверждения. Смысл: что утвердили вчера.\n- Название раздела в отчете: Сегодня ждем от клиента. Смысл: что сегодня нужно команде Cult от клиента (утвердить, посмотреть, созвониться, быть на связи).\n- Название раздела в отчете: Сегодня пришлем. Смысл раздела: что Cult сегодня пришлет клиенту.\n- Название раздела в отчете: Над чем работаем. Смысл: какие работы в данный момент ведутся командой Cult. \n\n2. При запросе деталей или более подробного статуса используй всю остальную информацию.\n3. **Выделяй критичные моменты** - срочные дедлайны, нерешенные вопросы, ожидающие решения\n4. **Показывай прогресс** - что готово, что в работе, что ожидает утверждения.\n5. **Указывай следующие шаги** по каждому активному направлению\n6. **Группируй похожие задачи** - не дублируй информацию, объединяй связанные вопросы\n7. **Игнорируй null значения** - не упоминай поля, которые равны null или содержат \"Не могу определить статус\"\n8. Не нужно выдавать клиенту вот эти поля:\n`project_id` - ID проекта\n`producer_id` - ID продюсера\n`client_id` - ID клиента\n`stage` - текущий этап (пре-продакшн/продакшн/пост-продакшн)\n`type` - тип проекта\n9. Говори на русском языке. Общайся от лица женщины.\n10. Если проект на стадии postproduction, тогда нужно выдавать только поля из группы **Пост-продакшн:**\nЕсли есть незакрытые проблемы со стадии пре-продакшн или со стадии съемок, в конце ответа кратко сформулируй эти проблемы. \n11. Если это проект с типом Full CG, тогда вместо полей **Пре-продакшн:** выдавай только поля **Full CG продакшн:**\n12. Заканчивай выдачу предложением при желании клиента дать больше деталей. Например: \"Хочешь, более подробно расскажу тебе про ход работ по поиску локации?\"\n13. Если в проекте есть явные проблемы со стороны продакшена, не говори об этих проблемах в критичном виде. Используй более мягкие формулировки. Вместо \"Критическая проблема\" используй выржаение \"есть сложности с...\" и тому подобное.\n\n\n### При получении информации от клиента о том, что ты ошибаешься или обладаешь неточной информацией\nскажи в ответ \"Большое спасибо за уточнение, я обсужу этот вопрос с продюсером проекта\". Дай понять, что так как ты - искуственный интеллект, ты еще пока только учишься и иногда можешь ошибаться. \n\n### Установка кода\nКод, который тебе дается - это техническая информация. Тебе не нужно передавать пользователю никакую информацию о коде, тебе просто нужно установить поле \"code\" с правильным значением кода.\n\n## Стиль общения\n- **Профессиональный, но дружелюбный тон**\n- **Будь спокойным в выражениях**. Избегай слов \"СРОЧНО\" \"КРИТИЧНО\", избегай написания только заглавными буквами. Используй более мягкие формулировки, например: \"Важно поскорее:\" или \"Достаточно критично:\"\n- **Краткость и ясность** - избегай воды в тексте\n- **Внимание к деталям** - замечай важные нюансы и дедлайны\n- Используй эмодзи только в заголовках разделов\n\n## Структура данных проекта\n\nТы получаешь информацию о проекте в следующих полях:\n\n**Общая информация:**\n- `project_id` - ID проекта\n- `producer_id` - ID продюсера\n- `client_id` - ID клиента\n- `project_name` - название проекта\n- `status` - общий статус проекта (активный/завершен/приостановлен)\n- `stage` - текущий этап (пре-продакшн/продакшн/пост-продакшн)\n- `type` - тип проекта\n\n**Документооборот:**\n- `doc` - статус договоров и документов\n- `act` - статус актов выполненных работ\n- `docs_status` - общий статус документооборота\n\n**Пре-продакшн:**\n- `storyboard_client` - статус раскадровки со стороны клиента\n- `storyboard_cult` - статус раскадровки со стороны Cult\n- `storyboard_next_step` - следующие шаги по раскадровке\n- `casting_client` - статус кастинга со стороны клиента\n- `casting_cult` - статус кастинга со стороны Cult\n- `casting_next_step` - следующие шаги по кастингу\n- `clothes_client` - статус костюмов со стороны клиента\n- `clothes_cult` - статус костюмов со стороны Cult\n- `clothes_next_step` - следующие шаги по костюмам\n- `props_client` - статус реквизита со стороны клиента\n- `props_cult` - статус реквизита со стороны Cult\n- `props_next_step` - следующие шаги по реквизиту\n- `location_client` - статус локации со стороны клиента\n- `location_cult` - статус локации со стороны Cult\n- `location_next_step` - следующие шаги по локации\n\n**Full CG продакшн:**\n- `animatic_client` - статус аниматика со стороны клиента\n- `animatic_cult` - статус аниматика со стороны Cult\n- `animatic_next_steps` - следующие шаги по аниматику\n- `modelling_client` - статус моделирования со стороны клиента\n- `modelling_cult` - статус моделирования со стороны Cult\n- `modelling_next_steps` - следующие шаги по моделированию\n- `styleshots_client` - статус стайлшотов со стороны клиента\n- `styleshots_cult` - статус стайлшотов со стороны Cult\n- `styleshots_next_steps` - следующие шаги по стайлшотам\n- `animation_client` - статус анимации со стороны клиента\n- `animation_cult` - статус анимации со стороны Cult\n- `animation_next_steps` - следующие шаги по анимации\n\n**Пост-продакшн:**\n- `editing_client` - статус монтажа со стороны клиента\n- `editing_cult` - статус монтажа со стороны Cult\n- `editing_next_step` - следующие шаги по монтажу\n- `music_client` - статус музыки со стороны клиента\n- `music_cult` - статус музыки со стороны Cult\n- `music_next_step` - следующие шаги по музыке\n- `vo_client` - статус озвучки со стороны клиента\n- `vo_cult` - статус озвучки со стороны Cult\n- `vo_next_step` - следующие шаги по озвучке\n- `colorgrading_client` - статус цветокоррекции со стороны клиента\n- `colorgrading_cult` - статус цветокоррекции со стороны Cult\n- `colorgrading_next_step` - следующие шаги по цветокоррекции\n- `photos_client` - статус фотосъемки со стороны клиента\n- `photos_cult` - статус фотосъемки со стороны Cult\n- `photos_next_step` - следующие шаги по фотосъемке\n- `cg_client` - статус компьютерной графики со стороны клиента\n- `cg_cult` - статус компьютерной графики со стороны Cult\n- `cg_next_step` - следующие шаги по компьютерной графике\n\n**Клиент:**\n- `client_demands` - что ожидает клиент\n- `client_status` - обобщенный статус по клиенту\n\n\n\n## СООБЩЕНИЕ ОТ ПОЛЬЗОВАТЕЛЯ\n\nВот твой последний ответ:\n{{ $('Get Last Message').first().json.text }}\n\nИ вот что на это ответил пользователь\n{{ $('Set_user_message').first().json.user_message }} \n\nОтветь на вопрос пользователя с учетом контекста переписки\n\n## ДЕТАЛЬНАЯ ИНФОРМАЦИЯ ПО ПРОЕКТАМ \n\n{{ $('Code').first().json.projects_details }}\n",
+              "type": "string"
+            },
+            {
+              "id": "461724f8-94c7-47c7-8c03-54d4584be486",
+              "name": "sobesednik_id",
+              "value": "={{ $('Telegram Trigger').first().json.message.from.id }}",
+              "type": "string"
+            },
+            {
+              "id": "414199a4-03bc-493a-8ff2-03b336639a68",
+              "name": "model",
+              "value": "={{ $('set Model Hard').first().json.model }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3440,
+        -96
+      ],
+      "id": "4eabf38f-9ab9-47b8-b9b0-e9d9e255fe5b",
+      "name": "Normal Mode Hard Client1",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Получаем ID отправителя сообщения из триггера\nconst triggerChatId = $('Telegram Trigger').first().json.message.chat.id;\n\n// Получаем ID специальных пользователей с полным доступом\nconst kostyaId = $('Special People').first().json.kostya;\nconst denisId = $('Special People').first().json.denis;\nconst tanyaId = $('Special People').first().json.tanya;\nconst egorId = $('Special People').first().json.egor;\n\n// Получаем все ID продюсеров из базы данных\nconst allProducers = $('Get all producers').all();\nconst producerIds = allProducers.map(item => item.json.producer_tg_chat_id).filter(id => id !== null && id !== undefined);\n\n// Получаем все ID клиентов из базы данных  \nconst allClients = $('Get all clients').all();\nconst clientIds = allClients.map(item => item.json.client_chat_id).filter(id => id !== null && id !== undefined);\n\n// Логирование для отладки\nconsole.log('Trigger Chat ID:', triggerChatId);\nconsole.log('Special People IDs:', { kostyaId, denisId, tanyaId, egorId });\nconsole.log('All Producer IDs:', producerIds);\nconsole.log('All Client IDs:', clientIds);\n\n// Определяем тип пользователя\nlet userType = 'not found';\n\n// Проверяем, является ли отправитель специальным пользователем\nif (triggerChatId === kostyaId || triggerChatId === denisId || triggerChatId === tanyaId || triggerChatId === egorId) {\n    userType = 'full_access';\n}\n// Проверяем, является ли отправитель продюсером\nelse if (producerIds.includes(triggerChatId)) {\n    userType = 'producer';\n}\n// Проверяем, является ли отправитель клиентом\nelse if (clientIds.includes(triggerChatId)) {\n    userType = 'client';\n}\n\n// Возвращаем результат\nreturn {\n    user_type: userType\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        240
+      ],
+      "id": "76ce7802-6cfe-42a5-a7cb-e34e40c50fb1",
+      "name": "Is client or producer or full access"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1433350-2f53-48a5-bb49-b9914d68b647",
+              "name": "denis",
+              "value": 121335318,
+              "type": "number"
+            },
+            {
+              "id": "100318d1-f905-45f0-8e11-3154a183afc9",
+              "name": "tanya",
+              "value": 474197497,
+              "type": "number"
+            },
+            {
+              "id": "825cfa47-c0ce-469c-935b-311d3c807bb1",
+              "name": "kostya",
+              "value": 104454695,
+              "type": "number"
+            },
+            {
+              "id": "fbc67d4a-de02-4245-897b-395e7282ccc4",
+              "name": "egor",
+              "value": 87871587,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -16,
+        240
+      ],
+      "id": "720b7f46-b309-41ac-a5c3-07273f4fd998",
+      "name": "Special People"
+    },
+    {
+      "parameters": {
+        "content": "задаем людей, которые должны получить полный доступ",
+        "height": 120,
+        "width": 150
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -32,
+        400
+      ],
+      "typeVersion": 1,
+      "id": "1f7cf9c3-8a6e-4a3e-8daf-b768449057eb",
+      "name": "Sticky Note22"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Is client or producer or full access').first().json.user_type }}",
+                    "rightValue": "client",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "06511359-2dce-4006-b653-2dc638d8cc99"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "client"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "0b7b72fc-ece2-4c95-bf5a-569ef1e9304a",
+                    "leftValue": "={{ $('Is client or producer or full access').first().json.user_type }}",
+                    "rightValue": "producer",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "producer"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "a8862778-e9b2-4fb2-8688-8d1780d62a46",
+                    "leftValue": "={{ $('Is client or producer or full access').first().json.user_type }}",
+                    "rightValue": "full_access",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "full"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1056,
+        240
+      ],
+      "id": "796015d5-a56d-4bcd-9830-c2952198819f",
+      "name": "Switch1"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "projects"
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        384
+      ],
+      "id": "a5c3e955-c0a5-4429-95e0-2c616938ef2d",
+      "name": "Get_Projects2",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "xkyvo2mbFVUMzG78",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://cult-ai-agents.onrender.com/api/workflow-logs",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_id",
+              "value": "agent"
+            },
+            {
+              "name": "message",
+              "value": "начал рассылку статуса"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        928,
+        1408
+      ],
+      "id": "065d823d-0648-4509-9c66-0b33a3c76a3a",
+      "name": "Log"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://cult-ai-agents.onrender.com/api/workflow-logs",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_id",
+              "value": "agent"
+            },
+            {
+              "name": "message",
+              "value": "--- ЗАКОНЧИЛ РАССЫЛКУ СТАТУСА ---"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1776,
+        1168
+      ],
+      "id": "cf7f21b8-2f6f-4569-9f76-9572ad4e8d68",
+      "name": "Log1",
+      "executeOnce": true
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Text",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram1": {
+      "main": [
+        [
+          {
+            "node": "OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Set_user_message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text": {
+      "main": [
+        [
+          {
+            "node": "Set_user_message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set_user_message": {
+      "main": [
+        [
+          {
+            "node": "Special People",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Producer": {
+      "main": [
+        [
+          {
+            "node": "Get_Projects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get_Projects": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "set Model Hard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set_status": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get_Projects1": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Log1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "set producer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Replace Me": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram2": {
+      "main": [
+        [
+          {
+            "node": "Normal Mode Hard Prod",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Markdown V2 formatting2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Markdown V2 formatting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get_Producer1": {
+      "main": [
+        [
+          {
+            "node": "Get_Producer2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get_Producer2": {
+      "main": [
+        [
+          {
+            "node": "Get_Producer3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get_Producer3": {
+      "main": [
+        [
+          {
+            "node": "Set Producer TG Chat IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status Mode": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Producer TG Chat IDs": {
+      "main": [
+        [
+          {
+            "node": "Status Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to prod 1": {
+      "main": [
+        [
+          {
+            "node": "Replace Me",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Markdown V2 formatting": {
+      "main": [
+        [
+          {
+            "node": "Last Message Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Markdown V2 formatting2": {
+      "main": [
+        [
+          {
+            "node": "Send to prod 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set Model Hard": {
+      "main": [
+        [
+          {
+            "node": "If4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If_more_4090": {
+      "main": [
+        [
+          {
+            "node": "If3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If3": {
+      "main": [
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram6": {
+      "main": [
+        [
+          {
+            "node": "Divide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram7": {
+      "main": [
+        [
+          {
+            "node": "Telegram8",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram8": {
+      "main": [
+        [
+          {
+            "node": "Telegram9",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram9": {
+      "main": [
+        [
+          {
+            "node": "Telegram10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Divide": {
+      "main": [
+        [
+          {
+            "node": "Telegram7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Last Message Update": {
+      "main": [
+        [
+          {
+            "node": "If_more_4090",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get all producers": {
+      "main": [
+        [
+          {
+            "node": "Get all clients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get all clients": {
+      "main": [
+        [
+          {
+            "node": "Is client or producer or full access",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get client": {
+      "main": [
+        [
+          {
+            "node": "Get_Projects1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If4": {
+      "main": [
+        [
+          {
+            "node": "Telegram11",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram11": {
+      "main": [
+        [
+          {
+            "node": "Normal Mode Hard Client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normal Mode Hard Prod": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normal Mode Hard Client": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set producer": {
+      "main": [
+        [
+          {
+            "node": "Get_Producer1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger1": {
+      "main": [
+        [
+          {
+            "node": "Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is client or producer or full access": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Special People": {
+      "main": [
+        [
+          {
+            "node": "Get all producers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch1": {
+      "main": [
+        [
+          {
+            "node": "Get client",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Producer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get_Projects2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get_Projects2": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log": {
+      "main": [
+        [
+          {
+            "node": "Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Moscow",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "e2c70b51-cf39-4296-ab2c-9ff90df6a9be",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "eef5c58a94f0f097a8fba5e0fe9604c06cfc8c39bdf7bed68b76dba58813a6e0"
+  },
+  "id": "1WD6AB2MigkBTPOI",
+  "tags": []
+}
