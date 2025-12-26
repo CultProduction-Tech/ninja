@@ -3,6 +3,7 @@ import express from 'express';
 import { logger } from './utils/logger';
 import { startTelegramBots } from './bot/telegram';
 import { startScheduler } from './workflows/trigger';
+import { startStatusScheduler } from './workflows/status-scheduler';
 import { setupWebhooks } from './api/webhooks';
 
 const app = express();
@@ -34,10 +35,15 @@ async function start() {
     await startTelegramBots();
     logger.info('✅ Telegram bots started');
 
-    // Start scheduler
-    logger.info('⏰ Starting scheduler...');
+    // Start scheduler for analysis
+    logger.info('⏰ Starting analysis scheduler...');
     startScheduler();
-    logger.info('✅ Scheduler started');
+    logger.info('✅ Analysis scheduler started');
+
+    // Start status notification scheduler
+    logger.info('📅 Starting status notification scheduler...');
+    startStatusScheduler();
+    logger.info('✅ Status notification scheduler started');
 
     logger.info('🎉 All services started successfully!');
 

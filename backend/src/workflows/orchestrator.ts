@@ -24,7 +24,7 @@ export async function runStatusUpdate(): Promise<Record<number, string>> {
     // 1. Get all chats
     const chats = await SupabaseClient.getAllChats();
     const systemSettings = await SupabaseClient.getSystemSettings();
-    const messageLimit = systemSettings.number_of_new_messages || 50;
+    const messageLimit = systemSettings.number_of_new_messages || 100; // Increased from 50 to 100 for better context
 
     logger.info(`Found ${chats.length} chats to process`);
 
@@ -91,10 +91,9 @@ async function processChat(chat: any, messageLimit: number, dryRun: boolean = fa
       logger.info(`  - ${block.name} (${block.type})`);
     });
 
-    // Prepare conversation text
-    const conversationText = messages
-      .map((m: any) => `[${m.sender_id}]: ${m.message_text}`)
-      .join('\n\n');
+    // Prepare conversation text with user roles (NEW: Продюсер/Клиент/Команда)
+    logger.info(`🔄 Formatting ${messages.length} messages with user roles...`);
+    const conversationText = await SupabaseClient.formatConversationWithRoles(messages);
 
     // 🆕 Call AI service to analyze ONLY active blocks
     logger.info(`🤖 Calling AI service to analyze ${activeBlocks.length} blocks for ${project.project_name}...`);
@@ -107,13 +106,16 @@ async function processChat(chat: any, messageLimit: number, dryRun: boolean = fa
     });
 
     if (dryRun) {
-      // DRY RUN: Show what would change
+      // DRY RUN: Show what would change, but still save custom blocks
       logger.info(`🧪 [DRY RUN] Would update project ${projectId}:`);
       logger.info(JSON.stringify(analysisResults, null, 2));
       logger.info(`🧪 [DRY RUN] Would mark ${messages.length} messages as analyzed`);
+
+      // 🚨 IMPORTANT: In DRY_RUN, we ONLY save custom_block_statuses (not projects table)
+      await saveAnalysisResults(projectId, project.project_name, activeBlocks, analysisResults, true);
     } else {
       // 🆕 Save results to both databases
-      await saveAnalysisResults(projectId, project.project_name, activeBlocks, analysisResults);
+      await saveAnalysisResults(projectId, project.project_name, activeBlocks, analysisResults, false);
 
       // Mark messages as analyzed
       const messageIds = messages.map((m: any) => m.message_id);
@@ -122,8 +124,12 @@ async function processChat(chat: any, messageLimit: number, dryRun: boolean = fa
 
     logger.info(`✅ Completed processing chat ${chatId}`);
 
+    // Get client settings to determine format
+    const clientSettings = await SupabaseClient.getClientSettings(projectId);
+    const format = clientSettings.format_status || 'длинный';
+
     // Format update text for notification
-    const updateText = formatUpdateText(activeBlocks, analysisResults, dryRun);
+    const updateText = formatUpdateText(activeBlocks, analysisResults, format, dryRun);
     return updateText;
 
   } catch (error) {
@@ -134,12 +140,14 @@ async function processChat(chat: any, messageLimit: number, dryRun: boolean = fa
 
 /**
  * 🆕 Save analysis results to both databases
+ * @param dryRun - If true, only save custom_block_statuses (not projects table)
  */
 async function saveAnalysisResults(
   projectId: number,
   projectName: string,
   blocks: DashboardBlock[],
-  analysisResults: Record<string, string>
+  analysisResults: Record<string, string>,
+  dryRun: boolean = false
 ) {
   try {
     for (const block of blocks) {
@@ -149,35 +157,29 @@ async function saveAnalysisResults(
       if (!newStatus) continue;
 
       if (block.type === 'standard') {
-        // Standard block: Save to Status Ninja projects table (old fields)
-        const fieldMapping = getStandardFieldMapping(block.name);
+        if (!dryRun) {
+          // Standard block: Save to Status Ninja projects table
+          const fieldMapping = getStandardFieldMapping(block.name);
 
-        if (fieldMapping) {
-          await SupabaseClient.updateProjectField(projectId, fieldMapping, newStatus);
-          logger.info(`✅ Updated Status Ninja: ${projectName} / ${fieldMapping}`);
+          if (fieldMapping) {
+            await SupabaseClient.updateProjectField(projectId, fieldMapping, newStatus);
+            logger.info(`✅ Updated Status Ninja: ${projectName} / ${fieldMapping}`);
+          }
+        } else {
+          logger.info(`🧪 [DRY RUN] Skipped updating standard block: ${block.name}`);
         }
 
-        // Also update Dashboard
-        await DashboardClient.updateStandardBlockStatus(projectName, block.name, newStatus);
-
       } else {
-        // Custom block: Save to Status Ninja custom_block_statuses table
+        // Custom block: Save to Status Ninja custom_block_statuses table - ALWAYS SAVE (even in DRY_RUN)
         await SupabaseClient.upsertCustomBlockStatus({
           project_id: projectId,
-          block_id: block.id!,
+          block_id: block.id,
           block_name: block.name,
           block_type: block.type,
           status_analysis: newStatus
         });
-        logger.info(`✅ Updated Status Ninja custom block: ${projectName} / ${block.name}`);
-
-        // Also update Dashboard
-        await DashboardClient.updateCustomBlockStatus(
-          projectName,
-          block.id!,
-          block.type as 'custom_pre' | 'custom_post',
-          newStatus
-        );
+        const prefix = dryRun ? '🧪 [DRY RUN] ' : '✅ ';
+        logger.info(`${prefix}Updated Status Ninja custom block: ${projectName} / ${block.name}`);
       }
     }
   } catch (error) {
@@ -214,9 +216,14 @@ function getStandardFieldMapping(dashboardBlockName: string): string | null {
 
 /**
  * 🆕 Format update text for producer notification (dynamic blocks)
- * Structured format with categories and emojis
+ * Supports two formats: short and long
  */
-function formatUpdateText(blocks: DashboardBlock[], updates: Record<string, string>, dryRun: boolean = false): string {
+function formatUpdateText(
+  blocks: DashboardBlock[],
+  updates: Record<string, string>,
+  format: 'короткий' | 'длинный' = 'длинный',
+  dryRun: boolean = false
+): string {
   interface StatusItem {
     name: string;
     status: string;
@@ -225,12 +232,12 @@ function formatUpdateText(blocks: DashboardBlock[], updates: Record<string, stri
 
   const changedStatuses: StatusItem[] = [];
 
-  // Collect all changed statuses
+  // Collect all analyzed statuses
   for (const block of blocks) {
     const blockKey = block.id || block.name;
     const newStatus = updates[blockKey];
 
-    if (newStatus && newStatus !== block.currentStatus) {
+    if (newStatus) {
       const displayName = block.type === 'standard'
         ? formatStandardBlockName(block.name)
         : block.name;
@@ -255,24 +262,45 @@ function formatUpdateText(blocks: DashboardBlock[], updates: Record<string, stri
   const sections: string[] = [];
   const prefix = dryRun ? '🧪 [DRY RUN - НЕ СОХРАНЕНО В БД]\n\n' : '';
 
-  // Important questions section
-  if (important.length > 0) {
-    sections.push('❓ Важные вопросы:\n' + important.map(s => `${s.name}: ${s.status}`).join('\n\n'));
-  }
+  if (format === 'короткий') {
+    // SHORT FORMAT: Compact, only key points
+    // Show in progress items compactly
+    if (inProgress.length > 0) {
+      sections.push(inProgress.map(s => `📍 ${s.name}\n${s.status}`).join('\n\n'));
+    }
 
-  // In progress section
-  if (inProgress.length > 0) {
-    sections.push('Наши процессы:\n\n' + inProgress.map(s => `📍 ${s.name}\n${s.status}`).join('\n\n'));
-  }
+    // Approved section (compact)
+    if (approved.length > 0) {
+      sections.push('✅ Согласовано:\n' + approved.map(s => `- ${s.name}`).join('\n'));
+    }
 
-  // Approved section
-  if (approved.length > 0) {
-    sections.push('✅ Согласовано:\n' + approved.map(s => `- ${s.name}`).join('\n'));
-  }
+    // Important questions (keep these even in short format)
+    if (important.length > 0) {
+      sections.push('❓ Важно:\n' + important.map(s => `${s.status}`).join('\n\n'));
+    }
 
-  // Important dates section
-  if (dates.length > 0) {
-    sections.push('‼️ Важные даты и этапы:\n' + dates.map(s => `${s.status}`).join('\n\n'));
+  } else {
+    // LONG FORMAT: Detailed with full sections
+
+    // Important questions section
+    if (important.length > 0) {
+      sections.push('❓ Важные вопросы:\n' + important.map(s => `${s.status}`).join('\n\n'));
+    }
+
+    // Our processes section (detailed)
+    if (inProgress.length > 0) {
+      sections.push('Наши процессы:\n\n' + inProgress.map(s => `📍 ${s.name}\n${s.status}`).join('\n\n'));
+    }
+
+    // Approved section
+    if (approved.length > 0) {
+      sections.push('✅ Согласовано:\n' + approved.map(s => `- ${s.name}`).join('\n'));
+    }
+
+    // Important dates section
+    if (dates.length > 0) {
+      sections.push('‼️ Важные даты и этапы проекта:\n' + dates.map(s => `${s.status}`).join('\n\n'));
+    }
   }
 
   return prefix + sections.join('\n\n');

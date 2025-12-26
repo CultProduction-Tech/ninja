@@ -20,7 +20,7 @@ export function setupGetIdBot() {
 
       // Check if message is forwarded
       if ('forward_from' in message && message.forward_from) {
-        const forwardedFrom = message.forward_from;
+        const forwardedFrom: any = message.forward_from;
         const telegramId = forwardedFrom.id;
         const firstName = forwardedFrom.first_name || '';
         const lastName = forwardedFrom.last_name || '';

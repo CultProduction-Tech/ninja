@@ -6,7 +6,7 @@ export function setupMessageCollector(bot: Telegraf) {
   // Listen to all messages in chats where bot is added
   bot.on('message', async (ctx: Context) => {
     try {
-      if (!('text' in ctx.message)) return;
+      if (!ctx.message || !('text' in ctx.message)) return;
 
       const message = ctx.message;
       const chatId = message.chat.id.toString();
