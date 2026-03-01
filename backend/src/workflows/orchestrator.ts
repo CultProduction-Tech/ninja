@@ -3,32 +3,24 @@ import { SupabaseClient } from '../database/supabase';
 import { DashboardClient, DashboardBlock } from '../database/dashboard-supabase';
 import { AIServiceClient } from '../services/ai-client';
 
-/**
- * Main orchestrator for Status Update workflow
- * NEW: Dynamic blocks from Dashboard
- *
- * Returns: Updates map { projectId: updateText } for notifications
- */
 export async function runStatusUpdate(): Promise<Record<number, string>> {
   const DRY_RUN = process.env.DRY_RUN === 'true';
 
   if (DRY_RUN) {
-    logger.info('🧪 DRY RUN MODE: Changes will NOT be saved to database');
+    logger.info('DRY RUN MODE: Changes will NOT be saved to database');
   }
 
-  logger.info('🚀 Starting status update workflow...');
+  logger.info('Starting status update workflow...');
 
   const updatesMap: Record<number, string> = {};
 
   try {
-    // 1. Get all chats
     const chats = await SupabaseClient.getAllChats();
     const systemSettings = await SupabaseClient.getSystemSettings();
-    const messageLimit = systemSettings.number_of_new_messages || 100; // Increased from 50 to 100 for better context
+    const messageLimit = systemSettings.number_of_new_messages || 100;
 
     logger.info(`Found ${chats.length} chats to process`);
 
-    // 2. Process each chat
     for (const chat of chats) {
       const updates = await processChat(chat, messageLimit, DRY_RUN);
 
@@ -37,18 +29,17 @@ export async function runStatusUpdate(): Promise<Record<number, string>> {
       }
     }
 
-    // 3. Check if we need to run again
     const updatedSettings = await SupabaseClient.getSystemSettings();
     if (updatedSettings.one_more_update) {
-      logger.info('⚠️ one_more_update flag is true, will need another run');
+      logger.info('one_more_update flag is true, will need another run');
     }
 
-    logger.info('✅ Status update workflow completed');
+    logger.info('Status update workflow completed');
 
     return updatesMap;
 
   } catch (error) {
-    logger.error('❌ Error in runStatusUpdate:', error);
+    logger.error('Error in runStatusUpdate:', error);
     throw error;
   }
 }
@@ -58,19 +49,24 @@ async function processChat(chat: any, messageLimit: number, dryRun: boolean = fa
     const chatId = chat.telegram_chat_id.toString();
     const projectId = chat.project_id;
 
-    logger.info(`📝 Processing chat ${chatId} for project ${projectId}`);
+    logger.info(`Processing chat ${chatId} for project ${projectId}`);
 
-    // Get unanalyzed messages
-    const messages = await SupabaseClient.getUnanalyzedMessages(chatId, messageLimit);
+    let messages;
+    if (dryRun) {
+      const testMessageLimit = 200;
+      messages = await SupabaseClient.getLastMessages(chatId, testMessageLimit);
+      logger.info(`[DRY RUN] Getting last ${testMessageLimit} messages (ignoring is_analyzed flag)`);
+    } else {
+      messages = await SupabaseClient.getUnanalyzedMessages(chatId, messageLimit);
+    }
 
     if (messages.length === 0) {
-      logger.info(`No new messages in chat ${chatId}`);
+      logger.info(`No messages in chat ${chatId}`);
       return null;
     }
 
     logger.info(`Found ${messages.length} messages in chat ${chatId}`);
 
-    // Get project details
     const project = await SupabaseClient.getProject(projectId);
 
     if (!project) {
@@ -78,7 +74,6 @@ async function processChat(chat: any, messageLimit: number, dryRun: boolean = fa
       return null;
     }
 
-    // 🆕 Get active blocks from Dashboard
     const activeBlocks = await DashboardClient.getActiveBlocks(project.project_name);
 
     if (activeBlocks.length === 0) {
@@ -86,17 +81,15 @@ async function processChat(chat: any, messageLimit: number, dryRun: boolean = fa
       return null;
     }
 
-    logger.info(`📊 Found ${activeBlocks.length} active blocks for ${project.project_name}:`);
+    logger.info(`Found ${activeBlocks.length} active blocks for ${project.project_name}:`);
     activeBlocks.forEach(block => {
       logger.info(`  - ${block.name} (${block.type})`);
     });
 
-    // Prepare conversation text with user roles (NEW: Продюсер/Клиент/Команда)
-    logger.info(`🔄 Formatting ${messages.length} messages with user roles...`);
+    logger.info(`Formatting ${messages.length} messages with user roles...`);
     const conversationText = await SupabaseClient.formatConversationWithRoles(messages);
 
-    // 🆕 Call AI service to analyze ONLY active blocks
-    logger.info(`🤖 Calling AI service to analyze ${activeBlocks.length} blocks for ${project.project_name}...`);
+    logger.info(`Calling AI service to analyze ${activeBlocks.length} blocks for ${project.project_name}...`);
 
     const analysisResults = await AIServiceClient.analyzeDynamicBlocks({
       projectId,
@@ -106,42 +99,32 @@ async function processChat(chat: any, messageLimit: number, dryRun: boolean = fa
     });
 
     if (dryRun) {
-      // DRY RUN: Show what would change, but still save custom blocks
-      logger.info(`🧪 [DRY RUN] Would update project ${projectId}:`);
+      logger.info(`[DRY RUN] Updating project ${projectId}:`);
       logger.info(JSON.stringify(analysisResults, null, 2));
-      logger.info(`🧪 [DRY RUN] Would mark ${messages.length} messages as analyzed`);
+      logger.info(`[DRY RUN] NOT marking ${messages.length} messages as analyzed (for re-testing)`);
 
-      // 🚨 IMPORTANT: In DRY_RUN, we ONLY save custom_block_statuses (not projects table)
       await saveAnalysisResults(projectId, project.project_name, activeBlocks, analysisResults, true);
     } else {
-      // 🆕 Save results to both databases
       await saveAnalysisResults(projectId, project.project_name, activeBlocks, analysisResults, false);
 
-      // Mark messages as analyzed
       const messageIds = messages.map((m: any) => m.message_id);
       await SupabaseClient.markMessagesAsAnalyzed(messageIds);
     }
 
-    logger.info(`✅ Completed processing chat ${chatId}`);
+    logger.info(`Completed processing chat ${chatId}`);
 
-    // Get client settings to determine format
     const clientSettings = await SupabaseClient.getClientSettings(projectId);
     const format = clientSettings.format_status || 'длинный';
 
-    // Format update text for notification
     const updateText = formatUpdateText(activeBlocks, analysisResults, format, dryRun);
     return updateText;
 
   } catch (error) {
-    logger.error(`❌ Error processing chat ${chat.telegram_chat_id}:`, error);
+    logger.error(`Error processing chat ${chat.telegram_chat_id}:`, error);
     return null;
   }
 }
 
-/**
- * 🆕 Save analysis results to both databases
- * @param dryRun - If true, only save custom_block_statuses (not projects table)
- */
 async function saveAnalysisResults(
   projectId: number,
   projectName: string,
@@ -151,26 +134,26 @@ async function saveAnalysisResults(
 ) {
   try {
     for (const block of blocks) {
-      const blockKey = block.id || block.name; // Use ID for custom, name for standard
+      const blockKey = block.id || block.name;
       const newStatus = analysisResults[blockKey];
 
       if (!newStatus) continue;
 
       if (block.type === 'standard') {
-        if (!dryRun) {
-          // Standard block: Save to Status Ninja projects table
-          const fieldMapping = getStandardFieldMapping(block.name);
+        const fieldMapping = getStandardFieldMapping(block.name);
 
-          if (fieldMapping) {
+        if (fieldMapping) {
+          if (!dryRun) {
             await SupabaseClient.updateProjectField(projectId, fieldMapping, newStatus);
-            logger.info(`✅ Updated Status Ninja: ${projectName} / ${fieldMapping}`);
+            logger.info(`Updated projects table: ${projectName} / ${fieldMapping}`);
+          } else {
+            await SupabaseClient.ensureProjectTestExists(projectId);
+            await SupabaseClient.updateProjectTestField(projectId, fieldMapping, newStatus);
+            logger.info(`[DRY RUN] Updated projects_test table: ${projectName} / ${fieldMapping}`);
           }
-        } else {
-          logger.info(`🧪 [DRY RUN] Skipped updating standard block: ${block.name}`);
         }
 
       } else {
-        // Custom block: Save to Status Ninja custom_block_statuses table - ALWAYS SAVE (even in DRY_RUN)
         await SupabaseClient.upsertCustomBlockStatus({
           project_id: projectId,
           block_id: block.id,
@@ -178,7 +161,7 @@ async function saveAnalysisResults(
           block_type: block.type,
           status_analysis: newStatus
         });
-        const prefix = dryRun ? '🧪 [DRY RUN] ' : '✅ ';
+        const prefix = dryRun ? '[DRY RUN] ' : '';
         logger.info(`${prefix}Updated Status Ninja custom block: ${projectName} / ${block.name}`);
       }
     }
@@ -188,13 +171,10 @@ async function saveAnalysisResults(
   }
 }
 
-/**
- * 🆕 Map standard block names from Dashboard to Status Ninja field names
- */
 function getStandardFieldMapping(dashboardBlockName: string): string | null {
   const mapping: Record<string, string> = {
     'documents': 'doc',
-    'storyboard': 'storyboard_cult', // Default to cult, can be improved later
+    'storyboard': 'storyboard_cult',
     'casting': 'casting_cult',
     'location': 'location_cult',
     'props': 'props_cult',
@@ -214,10 +194,6 @@ function getStandardFieldMapping(dashboardBlockName: string): string | null {
   return mapping[dashboardBlockName] || null;
 }
 
-/**
- * 🆕 Format update text for producer notification (dynamic blocks)
- * Supports two formats: short and long
- */
 function formatUpdateText(
   blocks: DashboardBlock[],
   updates: Record<string, string>,
@@ -232,72 +208,62 @@ function formatUpdateText(
 
   const changedStatuses: StatusItem[] = [];
 
-  // Collect all analyzed statuses
   for (const block of blocks) {
     const blockKey = block.id || block.name;
     const newStatus = updates[blockKey];
 
-    if (newStatus) {
-      const displayName = block.type === 'standard'
-        ? formatStandardBlockName(block.name)
-        : block.name;
-
-      const category = categorizeStatus(newStatus);
-      changedStatuses.push({ name: displayName, status: newStatus, category });
+    if (!newStatus || newStatus.toLowerCase().includes('информация отсутствует')) {
+      continue;
     }
+
+    const displayName = block.type === 'standard'
+      ? formatStandardBlockName(block.name)
+      : block.name;
+
+    const category = categorizeStatus(newStatus);
+    changedStatuses.push({ name: displayName, status: newStatus, category });
   }
 
   if (changedStatuses.length === 0) {
     return dryRun
-      ? '🧪 [DRY RUN] Нет изменений в статусах'
+      ? '[DRY RUN] Нет изменений в статусах'
       : 'Нет изменений в статусах';
   }
 
-  // Group by categories
   const important = changedStatuses.filter(s => s.category === 'important');
   const approved = changedStatuses.filter(s => s.category === 'approved');
   const dates = changedStatuses.filter(s => s.category === 'dates');
   const inProgress = changedStatuses.filter(s => s.category === 'in_progress');
 
   const sections: string[] = [];
-  const prefix = dryRun ? '🧪 [DRY RUN - НЕ СОХРАНЕНО В БД]\n\n' : '';
+  const prefix = dryRun ? '[DRY RUN - сохранено в projects_test]\n\n' : '';
 
   if (format === 'короткий') {
-    // SHORT FORMAT: Compact, only key points
-    // Show in progress items compactly
     if (inProgress.length > 0) {
       sections.push(inProgress.map(s => `📍 ${s.name}\n${s.status}`).join('\n\n'));
     }
 
-    // Approved section (compact)
     if (approved.length > 0) {
       sections.push('✅ Согласовано:\n' + approved.map(s => `- ${s.name}`).join('\n'));
     }
 
-    // Important questions (keep these even in short format)
     if (important.length > 0) {
       sections.push('❓ Важно:\n' + important.map(s => `${s.status}`).join('\n\n'));
     }
 
   } else {
-    // LONG FORMAT: Detailed with full sections
-
-    // Important questions section
     if (important.length > 0) {
       sections.push('❓ Важные вопросы:\n' + important.map(s => `${s.status}`).join('\n\n'));
     }
 
-    // Our processes section (detailed)
     if (inProgress.length > 0) {
       sections.push('Наши процессы:\n\n' + inProgress.map(s => `📍 ${s.name}\n${s.status}`).join('\n\n'));
     }
 
-    // Approved section
     if (approved.length > 0) {
       sections.push('✅ Согласовано:\n' + approved.map(s => `- ${s.name}`).join('\n'));
     }
 
-    // Important dates section
     if (dates.length > 0) {
       sections.push('‼️ Важные даты и этапы проекта:\n' + dates.map(s => `${s.status}`).join('\n\n'));
     }
@@ -306,28 +272,21 @@ function formatUpdateText(
   return prefix + sections.join('\n\n');
 }
 
-/**
- * Categorize status based on keywords
- */
 function categorizeStatus(status: string): 'important' | 'in_progress' | 'approved' | 'dates' {
   const lowerStatus = status.toLowerCase();
 
-  // Important questions (urgent, needs approval, etc.)
   const importantKeywords = [
     'важно', 'необходимо', 'срочно', 'нужно утвердить', 'требуется',
     'критично', 'обязательно', 'должны', 'надо'
   ];
 
-  // Approved/done
   const approvedKeywords = [
     'согласовано', 'утверждено', 'одобрено', 'окнули', 'ок от клиента',
     'подписан', 'готов', 'завершен', 'принято', 'финальн'
   ];
 
-  // Date-related
   const datePattern = /\d{1,2}[.\-\/]\d{1,2}|\d{1,2}\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)|PPM|pre-PPM|съемка|презентация/i;
 
-  // Check categories
   if (importantKeywords.some(keyword => lowerStatus.includes(keyword))) {
     return 'important';
   }
@@ -340,13 +299,9 @@ function categorizeStatus(status: string): 'important' | 'in_progress' | 'approv
     return 'dates';
   }
 
-  // Default: in progress
   return 'in_progress';
 }
 
-/**
- * Format standard block names for display
- */
 function formatStandardBlockName(blockName: string): string {
   const names: Record<string, string> = {
     'documents': 'Договор',

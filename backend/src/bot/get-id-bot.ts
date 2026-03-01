@@ -13,20 +13,16 @@ export function setupGetIdBot() {
     );
   });
 
-  // Handle forwarded messages
   bot.on('message', async (ctx) => {
     try {
       const message = ctx.message;
 
-      // Check if message is forwarded
       if ('forward_from' in message && message.forward_from) {
         const forwardedFrom: any = message.forward_from;
         const telegramId = forwardedFrom.id;
         const firstName = forwardedFrom.first_name || '';
         const lastName = forwardedFrom.last_name || '';
-        const username = forwardedFrom.username || '';
 
-        // Save to database
         await SupabaseClient.saveMessage({
           telegram_chat_id: ctx.chat.id.toString(),
           sender_id: telegramId.toString(),
@@ -35,7 +31,6 @@ export function setupGetIdBot() {
           is_analyzed: true
         });
 
-        // Send response
         await ctx.reply(`Telegram ID: ${telegramId}`);
 
         logger.info(`Get ID Bot: Retrieved ID ${telegramId} for ${firstName} ${lastName}`);

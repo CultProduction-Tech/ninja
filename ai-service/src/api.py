@@ -9,12 +9,10 @@ from .memory.conversation import ConversationMemory
 
 app = FastAPI(title="Ninja Status AI Service", version="1.0.0")
 
-# Initialize services
 status_analyzer = StatusAnalyzer()
 conversation_memory = ConversationMemory()
 
 
-# Request/Response models
 class StatusAnalysisRequest(BaseModel):
     projectId: int
     projectName: str
@@ -66,7 +64,7 @@ class ChatRequest(BaseModel):
 class ChatContextRequest(BaseModel):
     userId: str
     message: str
-    userType: str  # "producer", "client", or "unknown"
+    userType: str
     projects: List[Dict[str, Any]]
 
 
@@ -82,7 +80,7 @@ class StageAnalysisRequest(BaseModel):
 
 class BlockInfo(BaseModel):
     name: str
-    type: str  # "standard", "custom_pre", "custom_post"
+    type: str
     id: Optional[str] = None
     currentStatus: Optional[str] = None
 
@@ -94,7 +92,18 @@ class DynamicBlocksRequest(BaseModel):
     conversation: str
 
 
-# Endpoints
+class QuestionRequest(BaseModel):
+    projectName: str
+    question: str
+    conversation: str
+    messageCount: int
+
+
+class QuestionResponse(BaseModel):
+    answer: str
+    needsMore: bool
+
+
 @app.get("/")
 async def root():
     return {"service": "ninja-ai-service", "status": "ok"}
@@ -107,10 +116,6 @@ async def health():
 
 @app.post("/analyze/status", response_model=StatusAnalysisResponse)
 async def analyze_status(request: StatusAnalysisRequest):
-    """
-    Main endpoint to analyze project status from conversation.
-    Replaces the 19 LLM chains from n8n Status Update workflow.
-    """
     try:
         logger.info(f"Analyzing status for project {request.projectId}")
 
@@ -129,23 +134,17 @@ async def analyze_status(request: StatusAnalysisRequest):
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    """
-    Producer Agent chat endpoint with conversation memory.
-    """
     try:
         logger.info(f"Chat request from user {request.userId}")
 
-        # Get conversation history
         history = conversation_memory.get_history(request.userId)
 
-        # Generate response
         response = await status_analyzer.chat(
             user_id=request.userId,
             message=request.message,
             history=history
         )
 
-        # Save to memory
         conversation_memory.add_message(request.userId, "user", request.message)
         conversation_memory.add_message(request.userId, "assistant", response)
 
@@ -158,17 +157,11 @@ async def chat(request: ChatRequest):
 
 @app.post("/chat/context", response_model=ChatResponse)
 async def chat_with_context(request: ChatContextRequest):
-    """
-    Smart Bot chat with user context (producer/client) and projects.
-    Responds differently based on user type.
-    """
     try:
         logger.info(f"Chat with context from {request.userType} {request.userId}")
 
-        # Get conversation history
         history = conversation_memory.get_history(request.userId)
 
-        # Generate response with context
         response = await status_analyzer.chat_with_context(
             user_id=request.userId,
             message=request.message,
@@ -177,7 +170,6 @@ async def chat_with_context(request: ChatContextRequest):
             projects=request.projects
         )
 
-        # Save to memory
         conversation_memory.add_message(request.userId, "user", request.message)
         conversation_memory.add_message(request.userId, "assistant", response)
 
@@ -190,9 +182,6 @@ async def chat_with_context(request: ChatContextRequest):
 
 @app.post("/analyze/stage")
 async def analyze_stage(request: StageAnalysisRequest):
-    """
-    Analyze a specific project stage.
-    """
     try:
         logger.info(f"Analyzing stage: {request.stage}")
 
@@ -211,15 +200,9 @@ async def analyze_stage(request: StageAnalysisRequest):
 
 @app.post("/analyze/dynamic-blocks")
 async def analyze_dynamic_blocks(request: DynamicBlocksRequest):
-    """
-    🆕 NEW: Analyze dynamic blocks from Dashboard.
-    Only analyzes blocks that are active for this specific project.
-    Supports both standard and custom blocks.
-    """
     try:
         logger.info(f"Analyzing {len(request.blocks)} dynamic blocks for project {request.projectName}")
 
-        # Log blocks being analyzed
         for block in request.blocks:
             logger.info(f"  - {block.name} ({block.type})")
 
@@ -233,6 +216,25 @@ async def analyze_dynamic_blocks(request: DynamicBlocksRequest):
 
     except Exception as e:
         logger.error(f"Error analyzing dynamic blocks: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/answer/question", response_model=QuestionResponse)
+async def answer_question(request: QuestionRequest):
+    try:
+        logger.info(f"Answering question for project {request.projectName} ({request.messageCount} messages)")
+
+        result = await status_analyzer.answer_question(
+            project_name=request.projectName,
+            question=request.question,
+            conversation=request.conversation,
+            message_count=request.messageCount
+        )
+
+        return QuestionResponse(**result)
+
+    except Exception as e:
+        logger.error(f"Error answering question: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

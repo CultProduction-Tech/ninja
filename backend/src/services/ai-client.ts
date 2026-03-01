@@ -3,10 +3,10 @@ import { logger } from '../utils/logger';
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
 
+const DEFAULT_TIMEOUT = 120000;
+const LONG_TIMEOUT = 300000;
+
 export class AIServiceClient {
-  /**
-   * Analyze project status from conversation
-   */
   static async analyzeProjectStatus(params: {
     projectId: number;
     projectName: string;
@@ -22,10 +22,6 @@ export class AIServiceClient {
     }
   }
 
-  /**
-   * Chat with Smart Bot with user context
-   * Учитывает тип пользователя (продюсер/клиент) и его проекты
-   */
   static async chatWithContext(params: {
     userId: string;
     message: string;
@@ -33,7 +29,12 @@ export class AIServiceClient {
     projects: any[];
   }) {
     try {
-      const response = await axios.post(`${AI_SERVICE_URL}/chat/context`, params);
+      const timeout = params.message.length > 10000 ? LONG_TIMEOUT : DEFAULT_TIMEOUT;
+      logger.info(`AI chat request (${params.message.length} chars, timeout: ${timeout}ms)`);
+
+      const response = await axios.post(`${AI_SERVICE_URL}/chat/context`, params, {
+        timeout: timeout
+      });
       return response.data;
     } catch (error) {
       logger.error('Error calling AI service for chat:', error);
@@ -41,9 +42,6 @@ export class AIServiceClient {
     }
   }
 
-  /**
-   * Simple chat (legacy, for backward compatibility)
-   */
   static async chat(params: {
     userId: string;
     message: string;
@@ -57,9 +55,6 @@ export class AIServiceClient {
     }
   }
 
-  /**
-   * Analyze specific stage (e.g., storyboard, casting, etc.)
-   */
   static async analyzeStage(params: {
     stage: string;
     conversation: string;
@@ -74,10 +69,6 @@ export class AIServiceClient {
     }
   }
 
-  /**
-   * 🆕 Analyze dynamic blocks from Dashboard
-   * Replaces analyzeProjectStatus with flexible block-based approach
-   */
   static async analyzeDynamicBlocks(params: {
     projectId: number;
     projectName: string;
@@ -90,10 +81,35 @@ export class AIServiceClient {
     conversation: string;
   }) {
     try {
-      const response = await axios.post(`${AI_SERVICE_URL}/analyze/dynamic-blocks`, params);
+      const timeout = params.conversation.length > 10000 ? LONG_TIMEOUT : DEFAULT_TIMEOUT;
+      logger.info(`AI analyze blocks request (${params.blocks.length} blocks, ${params.conversation.length} chars, timeout: ${timeout}ms)`);
+
+      const response = await axios.post(`${AI_SERVICE_URL}/analyze/dynamic-blocks`, params, {
+        timeout: timeout
+      });
       return response.data;
     } catch (error) {
       logger.error('Error calling AI service for dynamic blocks analysis:', error);
+      throw error;
+    }
+  }
+
+  static async answerQuestion(params: {
+    projectName: string;
+    question: string;
+    conversation: string;
+    messageCount: number;
+  }): Promise<{ answer: string; needsMore: boolean }> {
+    try {
+      const timeout = params.conversation.length > 10000 ? LONG_TIMEOUT : DEFAULT_TIMEOUT;
+      logger.info(`AI question request (${params.messageCount} messages, ${params.conversation.length} chars, timeout: ${timeout}ms)`);
+
+      const response = await axios.post(`${AI_SERVICE_URL}/answer/question`, params, {
+        timeout: timeout
+      });
+      return response.data;
+    } catch (error) {
+      logger.error('Error calling AI service for question answering:', error);
       throw error;
     }
   }

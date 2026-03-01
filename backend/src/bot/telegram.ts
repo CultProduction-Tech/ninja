@@ -3,13 +3,6 @@ import { logger } from '../utils/logger';
 import { getSmartBot } from './smart-bot';
 import { setupMessageCollector } from '../workflows/collect-messages';
 
-/**
- * Telegram Bots Setup
- *
- * Bot 1 (Silent Bot): Собирает сообщения из чатов проектов
- * Bot 2 (Smart Bot): Анализирует, общается, отправляет уведомления
- */
-
 const silentBotToken = process.env.TELEGRAM_BOT_TOKEN!;
 const smartBotToken = process.env.TELEGRAM_PRODUCER_BOT_TOKEN!;
 
@@ -21,22 +14,16 @@ if (!smartBotToken) {
   throw new Error('TELEGRAM_PRODUCER_BOT_TOKEN is required for Smart Bot');
 }
 
-// Bot 1: Silent Bot (молчаливый)
 export const silentBot = new Telegraf(silentBotToken);
 
-// Setup Silent Bot handlers
-
-// Приветствие при добавлении бота в группу или когда кто-то вступает
 silentBot.on('new_chat_members', async (ctx) => {
   try {
     const newMembers = ctx.message.new_chat_members;
     const botInfo = await ctx.telegram.getMe();
 
-    // Проверяем, добавили ли бота в группу
     const botAdded = newMembers?.some(member => member.id === botInfo.id);
 
     if (botAdded) {
-      // Бот был добавлен в группу - отправляем приветствие
       const welcomeText =
         'Привет! Я — бот Статус Ниндзя 🥷\n' +
         'Читаю проектные чаты и собираю статусы, дедлайны и риски,\n' +
@@ -50,7 +37,6 @@ silentBot.on('new_chat_members', async (ctx) => {
       await ctx.reply(welcomeText, { parse_mode: 'Markdown' });
       logger.info(`Silent Bot added to chat ${ctx.chat.id}, sent welcome message`);
     } else if (newMembers && newMembers.length > 0) {
-      // Другие люди вступили в группу - отправляем приветствие им
       const welcomeText =
         'Привет! Я — бот Статус Ниндзя 🥷\n' +
         'Читаю проектные чаты и собираю статусы, дедлайны и риски,\n' +
@@ -76,15 +62,12 @@ silentBot.help((ctx) => {
   );
 });
 
-// Setup message collection
 setupMessageCollector(silentBot);
 
-// Bot 2: Smart Bot (умный)
 export const smartBot = getSmartBot(smartBotToken);
 
 export async function startTelegramBots() {
   try {
-    // Graceful shutdown handlers
     process.once('SIGINT', () => {
       silentBot.stop('SIGINT');
       smartBot.getBot().stop('SIGINT');
@@ -95,26 +78,23 @@ export async function startTelegramBots() {
       smartBot.getBot().stop('SIGTERM');
     });
 
-    // Start Silent Bot (работает в фоне)
-    logger.info('🤖 Starting Silent Bot...');
+    logger.info('Starting Silent Bot...');
     silentBot.launch().then(() => {
-      logger.info('✅ Silent Bot (Bot 1) polling started');
+      logger.info('Silent Bot polling started');
     }).catch((error) => {
-      logger.error('❌ Silent Bot failed:', error);
+      logger.error('Silent Bot failed:', error);
     });
 
-    // Start Smart Bot (используем его launch метод)
-    logger.info('🤖 Starting Smart Bot...');
+    logger.info('Starting Smart Bot...');
     smartBot.launch().then(() => {
-      logger.info('✅ Smart Bot (Bot 2) polling started');
+      logger.info('Smart Bot polling started');
     }).catch((error) => {
-      logger.error('❌ Smart Bot failed:', error);
+      logger.error('Smart Bot failed:', error);
     });
 
-    // Даём ботам время на инициализацию
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    logger.info('✅ Telegram bots launched');
+    logger.info('Telegram bots launched');
 
   } catch (error) {
     logger.error('Failed to start Telegram bots:', error);

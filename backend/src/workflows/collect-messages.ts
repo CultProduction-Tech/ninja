@@ -3,7 +3,6 @@ import { logger } from '../utils/logger';
 import { SupabaseClient } from '../database/supabase';
 
 export function setupMessageCollector(bot: Telegraf) {
-  // Listen to all messages in chats where bot is added
   bot.on('message', async (ctx: Context) => {
     try {
       if (!ctx.message || !('text' in ctx.message)) return;
@@ -14,7 +13,6 @@ export function setupMessageCollector(bot: Telegraf) {
       const messageText = extractMessageWithLinks(message);
       const chatName = 'title' in message.chat ? message.chat.title : 'Private';
 
-      // Save to database
       await SupabaseClient.saveMessage({
         telegram_chat_id: chatId,
         sender_id: senderId,
@@ -25,7 +23,6 @@ export function setupMessageCollector(bot: Telegraf) {
 
       logger.info(`Message collected from chat ${chatId}`);
 
-      // Check if new member joined
       if ('new_chat_member' in message) {
         await sendWelcomeMessage(ctx);
       }
@@ -36,7 +33,6 @@ export function setupMessageCollector(bot: Telegraf) {
   });
 }
 
-// Extract text with all links (like n8n Code node does)
 function extractMessageWithLinks(message: any): string {
   const text = message.text || '';
   const entities = message.entities || [];
@@ -60,7 +56,6 @@ function extractMessageWithLinks(message: any): string {
   return fullText;
 }
 
-// Welcome message for new members
 async function sendWelcomeMessage(ctx: Context) {
   const welcomeText =
     'Привет! Я — бот Статус Ниндзя 🥷\n' +
