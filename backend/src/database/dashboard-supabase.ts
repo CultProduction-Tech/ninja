@@ -16,6 +16,13 @@ export interface DashboardBlock {
   type: 'standard' | 'custom_pre' | 'custom_post';
 }
 
+export interface ManualStatus {
+  taskName: string;
+  status: string;
+  date: string | null;
+  changedAt: string;
+}
+
 export class DashboardClient {
   static supabase = dashboardSupabase;
 
@@ -69,6 +76,50 @@ export class DashboardClient {
     } catch (error) {
       logger.error(`Error in getActiveBlocks:`, error);
       return [];
+    }
+  }
+
+  /**
+   * Получить последние ручные статусы блоков проекта из дашборда.
+   * Возвращает Map: taskName (block.id) → ManualStatus
+   */
+  static async getManualStatuses(projectName: string): Promise<Map<string, ManualStatus>> {
+    const result = new Map<string, ManualStatus>();
+
+    try {
+      const { data, error } = await dashboardSupabase
+        .from('status_change_history')
+        .select('task_name, new_status, new_date, changed_at')
+        .eq('project_name', projectName)
+        .eq('change_type', 'manual')
+        .order('changed_at', { ascending: false });
+
+      if (error) {
+        logger.error(`Error getting manual statuses for ${projectName}:`, error);
+        return result;
+      }
+
+      if (!data || data.length === 0) {
+        return result;
+      }
+
+      // Берём только последнюю запись по каждому блоку (данные уже отсортированы по changed_at desc)
+      for (const row of data) {
+        if (!result.has(row.task_name)) {
+          result.set(row.task_name, {
+            taskName: row.task_name,
+            status: row.new_status,
+            date: row.new_date,
+            changedAt: row.changed_at,
+          });
+        }
+      }
+
+      logger.info(`Found ${result.size} manual statuses for ${projectName}`);
+      return result;
+    } catch (error) {
+      logger.error(`Error in getManualStatuses:`, error);
+      return result;
     }
   }
 

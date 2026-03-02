@@ -122,12 +122,20 @@ async function sendStatusToProducer(project: any) {
       return;
     }
 
-    // Все блоки читаем из единого хранилища custom_block_statuses
+    // Загружаем ручные статусы из дашборда (приоритет над AI)
+    const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
+
+    if (manualStatuses.size > 0) {
+      logger.info(`${manualStatuses.size} blocks have manual statuses from dashboard`);
+    }
+
+    // AI-статусы из единого хранилища custom_block_statuses
     let allStatuses = await SupabaseClient.getCustomBlockStatuses(project.project_id);
 
-    // Если у каких-то блоков нет статуса — анализируем на лету
+    // Блоки без статуса (ни ручного, ни AI) — анализируем на лету
     const missingBlocks = activeBlocks.filter(block => {
       const blockId = block.id || block.name;
+      if (manualStatuses.has(blockId)) return false; // есть ручной — не нужен AI
       return !allStatuses.find(s => s.block_id === blockId && s.status_analysis);
     });
 
@@ -137,9 +145,19 @@ async function sendStatusToProducer(project: any) {
       allStatuses = [...allStatuses, ...newStatuses];
     }
 
+    // Собираем итоговую карту статусов: ручные > AI
     const statusMap: Record<string, string> = {};
     for (const block of activeBlocks) {
       const blockKey = block.id || block.name;
+
+      // Ручной статус из дашборда — приоритет
+      const manual = manualStatuses.get(blockKey);
+      if (manual) {
+        statusMap[blockKey] = manual.status;
+        continue;
+      }
+
+      // Иначе — AI-статус
       const status = allStatuses.find(s => s.block_id === blockKey);
       if (status && status.status_analysis) {
         statusMap[blockKey] = status.status_analysis;

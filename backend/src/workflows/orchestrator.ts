@@ -91,17 +91,45 @@ async function processChat(chat: any, messageLimit: number, dryRun: boolean = fa
       logger.info(`  - ${block.name} (${block.type})`);
     });
 
-    logger.info(`Formatting ${messages.length} messages with user roles...`);
-    const conversationText = await SupabaseClient.formatConversationWithRoles(messages);
+    // Загружаем ручные статусы из дашборда
+    const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
 
-    logger.info(`Calling AI service to analyze ${activeBlocks.length} blocks for ${project.project_name}...`);
-
-    const analysisResults = await AIServiceClient.analyzeDynamicBlocks({
-      projectId,
-      projectName: project.project_name,
-      blocks: activeBlocks,
-      conversation: conversationText
+    // Фильтруем: блоки с ручным статусом не отправляем на AI-анализ
+    const blocksForAI = activeBlocks.filter(block => {
+      const blockKey = block.id || block.name;
+      return !manualStatuses.has(blockKey);
     });
+
+    if (manualStatuses.size > 0) {
+      logger.info(`${manualStatuses.size} blocks have manual statuses (skipping AI analysis for them)`);
+    }
+
+    // Собираем результаты: ручные статусы + AI-анализ
+    const analysisResults: Record<string, string> = {};
+
+    // Сначала добавляем ручные статусы
+    for (const [blockKey, manual] of manualStatuses) {
+      analysisResults[blockKey] = manual.status;
+    }
+
+    // Затем анализируем остальные через AI
+    if (blocksForAI.length > 0) {
+      logger.info(`Formatting ${messages.length} messages with user roles...`);
+      const conversationText = await SupabaseClient.formatConversationWithRoles(messages);
+
+      logger.info(`Calling AI service to analyze ${blocksForAI.length} blocks for ${project.project_name}...`);
+
+      const aiResults = await AIServiceClient.analyzeDynamicBlocks({
+        projectId,
+        projectName: project.project_name,
+        blocks: blocksForAI,
+        conversation: conversationText
+      });
+
+      Object.assign(analysisResults, aiResults);
+    } else {
+      logger.info(`All blocks have manual statuses, skipping AI analysis`);
+    }
 
     if (dryRun) {
       logger.info(`[DRY RUN] Updating project ${projectId}:`);
