@@ -4,7 +4,12 @@ import { AIServiceClient } from '../services/ai-client';
 import { SupabaseClient, getDefaultClientSettings } from '../database/supabase';
 import { DashboardClient } from '../database/dashboard-supabase';
 import { runStatusUpdate } from '../workflows/orchestrator';
-import { formatStatusForClient, getStandardFieldMapping } from '../workflows/status-scheduler';
+import { formatStatusForClient } from '../workflows/status-scheduler';
+import {
+  getStandardFieldMapping,
+  getBlockDisplayName,
+  getBlockEmoji,
+} from '../shared/block-registry';
 
 interface ConversationMessage {
   role: 'user' | 'assistant';
@@ -392,24 +397,14 @@ export class SmartBot {
           await ctx.reply('⚠️ Нет сообщений для анализа в чатах проекта');
         }
 
-        const projectData = await SupabaseClient.getProject(projectId);
-
-        const customStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
+        const allStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
 
         const statusMap: Record<string, string> = {};
         for (const block of activeBlocks) {
           const blockKey = block.id || block.name;
-
-          if (block.type !== 'standard') {
-            const customStatus = customStatuses.find(s => s.block_id === block.id);
-            if (customStatus && customStatus.status_analysis) {
-              statusMap[blockKey] = customStatus.status_analysis;
-            }
-          } else {
-            const fieldName = getStandardFieldMapping(block.name);
-            if (fieldName && projectData && projectData[fieldName]) {
-              statusMap[blockKey] = projectData[fieldName];
-            }
+          const status = allStatuses.find((s: any) => s.block_id === blockKey);
+          if (status && status.status_analysis) {
+            statusMap[blockKey] = status.status_analysis;
           }
         }
 
@@ -580,8 +575,7 @@ export class SmartBot {
               conversation: conversationText
             });
 
-            let standardCount = 0;
-            let customCount = 0;
+            let savedCount = 0;
 
             for (const block of activeBlocks) {
               const blockKey = block.id || block.name;
@@ -592,25 +586,27 @@ export class SmartBot {
                 continue;
               }
 
+              // Все блоки пишем в custom_block_statuses
+              await SupabaseClient.upsertCustomBlockStatus({
+                project_id: project.project_id,
+                block_id: block.id || block.name,
+                block_name: block.name,
+                block_type: block.type,
+                status_analysis: newStatus
+              });
+
+              // Стандартные блоки дополнительно в projects_test (dual-write)
               if (block.type === 'standard') {
-                const fieldName = this.getStandardFieldMapping(block.name);
+                const fieldName = getStandardFieldMapping(block.name);
                 if (fieldName) {
                   await SupabaseClient.updateProjectTestField(project.project_id, fieldName, newStatus);
-                  standardCount++;
                 }
-              } else {
-                await SupabaseClient.upsertCustomBlockStatus({
-                  project_id: project.project_id,
-                  block_id: block.id!,
-                  block_name: block.name,
-                  block_type: block.type,
-                  status_analysis: newStatus
-                });
-                customCount++;
               }
+
+              savedCount++;
             }
 
-            logger.info(`Project ${project.project_name}: ${standardCount} standard + ${customCount} custom blocks saved`);
+            logger.info(`Project ${project.project_name}: ${savedCount} blocks saved`);
             successCount++;
 
           } catch (error) {
@@ -715,8 +711,7 @@ export class SmartBot {
               conversation: conversationText
             });
 
-            let standardCount = 0;
-            let customCount = 0;
+            let savedCount = 0;
 
             for (const block of activeBlocks) {
               const blockKey = block.id || block.name;
@@ -727,28 +722,29 @@ export class SmartBot {
                 continue;
               }
 
+              // Все блоки пишем в custom_block_statuses
+              await SupabaseClient.upsertCustomBlockStatus({
+                project_id: project.project_id,
+                block_id: block.id || block.name,
+                block_name: block.name,
+                block_type: block.type,
+                status_analysis: newStatus
+              });
+
+              // Стандартные блоки дополнительно в projects_test (dual-write)
               if (block.type === 'standard') {
-                const fieldName = this.getStandardFieldMapping(block.name);
+                const fieldName = getStandardFieldMapping(block.name);
                 if (fieldName) {
                   await SupabaseClient.updateProjectTestField(project.project_id, fieldName, newStatus);
-                  standardCount++;
-                  logger.info(`  ${block.name}: ${newStatus.substring(0, 50)}...`);
                 }
-              } else {
-                await SupabaseClient.upsertCustomBlockStatus({
-                  project_id: project.project_id,
-                  block_id: block.id!,
-                  block_name: block.name,
-                  block_type: block.type,
-                  status_analysis: newStatus
-                });
-                customCount++;
-                logger.info(`  ${block.name}: ${newStatus.substring(0, 50)}...`);
               }
+
+              savedCount++;
+              logger.info(`  ${block.name}: ${newStatus.substring(0, 50)}...`);
             }
 
-            logger.info(`Project ${project.project_name}: ${standardCount} standard + ${customCount} custom blocks saved`);
-            await ctx.reply(`✅ "${project.project_name}": ${standardCount + customCount} блоков обновлено`);
+            logger.info(`Project ${project.project_name}: ${savedCount} blocks saved`);
+            await ctx.reply(`✅ "${project.project_name}": ${savedCount} блоков обновлено`);
             successCount++;
 
           } catch (error) {
@@ -765,9 +761,7 @@ export class SmartBot {
         if (errorCount > 0) {
           summary += `⚠️ Ошибок: ${errorCount}\n`;
         }
-        summary += `\n💾 Данные сохранены в:\n`;
-        summary += `  - projects_test (стандартные блоки)\n`;
-        summary += `  - custom_block_statuses (кастомные блоки)\n`;
+        summary += `\n💾 Данные сохранены в custom_block_statuses\n`;
         summary += `\n💡 Используйте /admin_send для отправки статусов продюсерам.`;
 
         ctx.reply(summary);
@@ -1256,7 +1250,7 @@ export class SmartBot {
         return;
       }
 
-      const customStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
+      const allStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
 
       await ctx.reply('🤖 Анализирую вашу корректировку...');
 
@@ -1264,14 +1258,9 @@ export class SmartBot {
       let currentStatusContext = 'ТЕКУЩИЕ СТАТУСЫ:\n\n';
 
       for (const block of allBlocks) {
-        if (block.type === 'standard') {
-          const fieldName = this.getStandardFieldMapping(block.name);
-          const status = fieldName && project ? (project[fieldName] || 'информация отсутствует') : 'информация отсутствует';
-          currentStatusContext += `${block.name}: ${status}\n`;
-        } else {
-          const status = customStatuses.find(s => s.block_id === block.id);
-          currentStatusContext += `${block.name}: ${status?.status_analysis || 'информация отсутствует'}\n`;
-        }
+        const blockKey = block.id || block.name;
+        const status = allStatuses.find((s: any) => s.block_id === blockKey);
+        currentStatusContext += `${block.name}: ${status?.status_analysis || 'информация отсутствует'}\n`;
       }
 
       const parsePrompt = `Ты - ассистент для парсинга корректировок статусов проекта.
@@ -1401,30 +1390,30 @@ ${currentStatusContext}
           continue;
         }
 
+        // Все блоки пишем в custom_block_statuses
+        await SupabaseClient.upsertCustomBlockStatus({
+          project_id: projectId,
+          block_id: block.id || block.name,
+          block_name: block.name,
+          block_type: block.type,
+          status_analysis: update.newStatus
+        });
+
+        // Стандартные блоки дополнительно в projects/projects_test (dual-write)
         if (block.type === 'standard') {
-          const fieldName = this.getStandardFieldMapping(block.name);
+          const fieldName = getStandardFieldMapping(block.name);
           if (fieldName) {
             if (DRY_RUN) {
               await SupabaseClient.ensureProjectTestExists(projectId);
               await SupabaseClient.updateProjectTestField(projectId, fieldName, update.newStatus);
-              logger.info(`[DRY RUN] Updated projects_test: ${block.name} → ${update.newStatus}`);
             } else {
               await SupabaseClient.updateProjectField(projectId, fieldName, update.newStatus);
-              logger.info(`Updated projects: ${block.name} → ${update.newStatus}`);
             }
-            updatedCount++;
           }
-        } else {
-          await SupabaseClient.upsertCustomBlockStatus({
-            project_id: projectId,
-            block_id: block.id!,
-            block_name: block.name,
-            block_type: block.type,
-            status_analysis: update.newStatus
-          });
-          updatedCount++;
-          logger.info(`Updated custom block: ${block.name} → ${update.newStatus}`);
         }
+
+        updatedCount++;
+        logger.info(`Updated block: ${block.name} → ${update.newStatus}`);
       }
 
       logger.info(`Updated ${updatedCount} block statuses from correction`);
@@ -1482,9 +1471,7 @@ ${currentStatusContext}
     try {
       const activeBlocks = await DashboardClient.getActiveBlocks(project.project_name);
 
-      const customStatuses = await SupabaseClient.getCustomBlockStatuses(project.project_id);
-
-      const projectData = await SupabaseClient.getProject(project.project_id);
+      const allStatuses = await SupabaseClient.getCustomBlockStatuses(project.project_id);
 
       let msg = `Название проекта:\n${project.project_name}\n\n`;
       msg += `Информация о статусе проекта в структурированном виде:\n`;
@@ -1495,43 +1482,15 @@ ${currentStatusContext}
         return msg;
       }
 
-      const blockEmojis: Record<string, string> = {
-        'documents': '📋',
-        'storyboard': '🎨',
-        'casting': '🎭',
-        'location': '📍',
-        'props': '🎪',
-        'wardrobe': '👕',
-        'editing': '✂️',
-        'voice': '🎤',
-        'music': '🎵',
-        'color': '🌈',
-        'photos': '📷',
-        'cg': '💫',
-        'animatic': '🎬',
-        'modelling': '🏗️',
-        'styleshots': '📸',
-        'animation': '🎞️'
-      };
-
       for (const block of activeBlocks) {
-        if (block.type === 'standard') {
-          const emoji = blockEmojis[block.name] || '▫️';
-          const blockNameRu = this.getStandardBlockNameRu(block.name);
+        const emoji = getBlockEmoji(block.name);
+        const displayName = getBlockDisplayName(block.name);
+        const blockKey = block.id || block.name;
+        const statusRecord = allStatuses.find((s: any) => s.block_id === blockKey);
+        const status = statusRecord?.status_analysis || noInfo;
 
-          const fieldName = this.getStandardFieldMapping(block.name);
-          const status = fieldName && projectData ? (projectData[fieldName] || noInfo) : noInfo;
-
-          msg += `${emoji} ${blockNameRu}\n`;
-          msg += `- ${status}\n\n`;
-
-        } else {
-          const customStatus = customStatuses.find(cs => cs.block_id === block.id);
-          const status = customStatus?.status_analysis || noInfo;
-
-          msg += `⭐ ${block.name}\n`;
-          msg += `- ${status}\n\n`;
-        }
+        msg += `${emoji} ${displayName}\n`;
+        msg += `- ${status}\n\n`;
       }
 
       msg += `Все ли верно? Если какая-то информация неточная, пожалуйста, укажи, что нужно подправить`;
@@ -1544,162 +1503,6 @@ ${currentStatusContext}
     }
   }
 
-  private getStandardBlockNameRu(blockName: string): string {
-    const names: Record<string, string> = {
-      'documents': 'Документы',
-      'storyboard': 'Сториборд',
-      'casting': 'Кастинг',
-      'location': 'Локации / Декорации',
-      'props': 'Эскизы и реквизит',
-      'wardrobe': 'Костюм',
-      'editing': 'Монтаж',
-      'voice': 'Войсовер',
-      'music': 'Музыка',
-      'color': 'Цветокоррекция',
-      'photos': 'Фото',
-      'cg': 'CG',
-      'animatic': 'Аниматик',
-      'modelling': 'Моделирование',
-      'styleshots': 'Стайлшоты',
-      'animation': 'Анимация'
-    };
-
-    return names[blockName] || blockName;
-  }
-
-  private getStandardFieldMapping(dashboardBlockName: string): string | null {
-    const mapping: Record<string, string> = {
-      'documents': 'doc',
-      'storyboard': 'storyboard_cult',
-      'casting': 'casting_cult',
-      'location': 'location_cult',
-      'props': 'props_cult',
-      'wardrobe': 'clothes_cult',
-      'editing': 'editing_cult',
-      'voice': 'vo_cult',
-      'music': 'music_cult',
-      'color': 'colorgrading_cult',
-      'photos': 'photos_cult',
-      'cg': 'cg_cult',
-      'animatic': 'animatic_cult',
-      'modelling': 'modelling_cult',
-      'styleshots': 'styleshots_cult',
-      'animation': 'animation_cult',
-      'Документы': 'doc',
-      'Раскадровка': 'storyboard_cult',
-      'Кастинг': 'casting_cult',
-      'Локация': 'location_cult',
-      'Реквизит': 'props_cult',
-      'Костюмы': 'clothes_cult',
-      'Монтаж': 'editing_cult',
-      'Озвучка': 'vo_cult',
-      'Музыка': 'music_cult',
-      'Цветокоррекция': 'colorgrading_cult',
-      'Фото': 'photos_cult',
-      'CG': 'cg_cult',
-      'Аниматик': 'animatic_cult',
-      'Моделирование': 'modelling_cult',
-      'Стайлшоты': 'styleshots_cult',
-      'Анимация': 'animation_cult'
-    };
-
-    return mapping[dashboardBlockName] || null;
-  }
-
-  private formatProjectStatus(project: any): string {
-    const noInfo = 'информация отсутствует';
-
-    let msg = `Название проекта:\n${project.project_name}\n\n`;
-    msg += `Информация о статусе проекта в структурированном виде:\n`;
-    msg += `"${project.project_name}" - ежедневный статус\n\n`;
-
-    msg += `📋 Документы\n`;
-    msg += `- ${project.doc || 'Работа не начата'}\n\n`;
-
-    msg += `🎨 Сториборд\n`;
-    msg += `- Что и когда ждем от клиента/агентства: ${project.storyboard_client || noInfo}\n`;
-    msg += `- Что и во сколько пришлем/что делаем сейчас: ${project.storyboard_cult || noInfo}\n`;
-    msg += `- Когда ждем обратную связь от клиента: ${noInfo}\n\n`;
-
-    msg += `🤖 AI-генерации\n`;
-    msg += `- Что и когда ждем от клиента/агентства: ${project.aigen_client || noInfo}\n`;
-    msg += `- Что и во сколько пришлем/что делаем сейчас: ${project.aigen_cult || noInfo}\n`;
-    msg += `- Когда ждем обратную связь от клиента: ${noInfo}\n\n`;
-
-    msg += `🎭 Кастинг\n`;
-    msg += `- Что и когда ждем от клиента/агентства: ${project.casting_client || noInfo}\n`;
-    msg += `- Что и во сколько пришлем/что делаем сейчас: ${project.casting_cult || noInfo}\n`;
-    msg += `- Когда ждем обратную связь от клиента: ${noInfo}\n\n`;
-
-    msg += `👕 Костюм\n`;
-    msg += `- Что и когда ждем от клиента/агентства: ${project.clothes_client || noInfo}\n`;
-    msg += `- Что и во сколько пришлем/что делаем сейчас: ${project.clothes_cult || noInfo}\n`;
-    msg += `- Когда ждем обратную связь от клиента: ${noInfo}\n\n`;
-
-    msg += `🎪 Эскизы и реквизит\n`;
-    msg += `- Что и когда ждем от клиента/агентства: ${project.props_client || noInfo}\n`;
-    msg += `- Что и во сколько пришлем/что делаем сейчас: ${project.props_cult || noInfo}\n`;
-    msg += `- Когда ждем обратную связь от клиента: ${noInfo}\n\n`;
-
-    msg += `📍 Локации / Декорации\n`;
-    msg += `- Что и когда ждем от клиента/агентства: ${project.location_client || noInfo}\n`;
-    msg += `- Что и во сколько пришлем/что делаем сейчас: ${project.location_cult || noInfo}\n`;
-    msg += `- Когда ждем обратную связь от клиента: ${noInfo}\n\n`;
-
-    msg += `🎬 Аниматик\n`;
-    msg += `- Что и когда ждем от клиента/агентства: ${project.animatic_client || noInfo}\n`;
-    msg += `- Что и во сколько пришлем/что делаем сейчас: ${project.animatic_cult || noInfo}\n`;
-    msg += `- Когда ждем обратную связь от клиента: ${noInfo}\n\n`;
-
-    msg += `🏗️ Моделирование\n`;
-    msg += `- Что и когда ждем от клиента/агентства: ${project.modelling_client || noInfo}\n`;
-    msg += `- Что и во сколько пришлем/что делаем сейчас: ${project.modelling_cult || noInfo}\n`;
-    msg += `- Когда ждем обратную связь от клиента: ${noInfo}\n\n`;
-
-    msg += `📸 Стайлшоты\n`;
-    msg += `- Что и когда ждем от клиента/агентства: ${project.styleshots_client || noInfo}\n`;
-    msg += `- Что и во сколько пришлем/что делаем сейчас: ${project.styleshots_cult || noInfo}\n`;
-    msg += `- Когда ждем обратную связь от клиента: ${noInfo}\n\n`;
-
-    msg += `🎞️ Анимация\n`;
-    msg += `- Что и когда ждем от клиента/агентства: ${project.animation_client || noInfo}\n`;
-    msg += `- Что и во сколько пришлем/что делаем сейчас: ${project.animation_cult || noInfo}\n`;
-    msg += `- Когда ждем обратную связь от клиента: ${noInfo}\n\n`;
-
-    msg += `✂️ Монтаж\n`;
-    msg += `- Что и когда ждем от клиента/агентства: ${project.editing_client || noInfo}\n`;
-    msg += `- Что и во сколько пришлем/что делаем сейчас: ${project.editing_cult || noInfo}\n`;
-    msg += `- Когда ждем обратную связь от клиента: ${noInfo}\n\n`;
-
-    msg += `🎵 Музыка\n`;
-    msg += `- Что и когда ждем от клиента/агентства: ${project.music_client || noInfo}\n`;
-    msg += `- Что и во сколько пришлем/что делаем сейчас: ${project.music_cult || noInfo}\n`;
-    msg += `- Когда ждем обратную связь от клиента: ${noInfo}\n\n`;
-
-    msg += `🎤 Войсовер\n`;
-    msg += `- Что и когда ждем от клиента/агентства: ${project.vo_client || noInfo}\n`;
-    msg += `- Что и во сколько пришлем/что делаем сейчас: ${project.vo_cult || noInfo}\n`;
-    msg += `- Когда ждем обратную связь от клиента: ${noInfo}\n\n`;
-
-    msg += `🎨 Цветокоррекция\n`;
-    msg += `- Что и когда ждем от клиента/агентства: ${project.colorgrading_client || noInfo}\n`;
-    msg += `- Что и во сколько пришлем/что делаем сейчас: ${project.colorgrading_cult || noInfo}\n`;
-    msg += `- Когда ждем обратную связь от клиента: ${noInfo}\n\n`;
-
-    msg += `📷 Фото\n`;
-    msg += `- Что и когда ждем от клиента/агентства: ${project.photos_client || noInfo}\n`;
-    msg += `- Что и во сколько пришлем/что делаем сейчас: ${project.photos_cult || noInfo}\n`;
-    msg += `- Когда ждем обратную связь от клиента: ${noInfo}\n\n`;
-
-    msg += `💫 CG\n`;
-    msg += `- Что и когда ждем от клиента/агентства: ${project.cg_client || noInfo}\n`;
-    msg += `- Что и во сколько пришлем/что делаем сейчас: ${project.cg_cult || noInfo}\n`;
-    msg += `- Когда ждем обратную связь от клиента: ${noInfo}\n\n`;
-
-    msg += `Все ли верно? Если какая-то информация неточная, пожалуйста, укажи, что нужно подправить`;
-
-    return msg;
-  }
 
   private truncate(text: string, maxLength: number): string {
     if (!text) return '';

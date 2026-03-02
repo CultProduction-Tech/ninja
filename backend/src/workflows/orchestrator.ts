@@ -2,6 +2,11 @@ import { logger } from '../utils/logger';
 import { SupabaseClient } from '../database/supabase';
 import { DashboardClient, DashboardBlock } from '../database/dashboard-supabase';
 import { AIServiceClient } from '../services/ai-client';
+import {
+  getStandardFieldMapping,
+  getBlockDisplayName,
+  categorizeStatus,
+} from '../shared/block-registry';
 
 export async function runStatusUpdate(): Promise<Record<number, string>> {
   const DRY_RUN = process.env.DRY_RUN === 'true';
@@ -139,31 +144,30 @@ async function saveAnalysisResults(
 
       if (!newStatus) continue;
 
+      // Все блоки (и стандартные, и кастомные) пишем в custom_block_statuses
+      await SupabaseClient.upsertCustomBlockStatus({
+        project_id: projectId,
+        block_id: block.id || block.name,
+        block_name: block.name,
+        block_type: block.type,
+        status_analysis: newStatus
+      });
+
+      // Стандартные блоки дополнительно пишем в projects/projects_test (dual-write)
       if (block.type === 'standard') {
         const fieldMapping = getStandardFieldMapping(block.name);
-
         if (fieldMapping) {
           if (!dryRun) {
             await SupabaseClient.updateProjectField(projectId, fieldMapping, newStatus);
-            logger.info(`Updated projects table: ${projectName} / ${fieldMapping}`);
           } else {
             await SupabaseClient.ensureProjectTestExists(projectId);
             await SupabaseClient.updateProjectTestField(projectId, fieldMapping, newStatus);
-            logger.info(`[DRY RUN] Updated projects_test table: ${projectName} / ${fieldMapping}`);
           }
         }
-
-      } else {
-        await SupabaseClient.upsertCustomBlockStatus({
-          project_id: projectId,
-          block_id: block.id,
-          block_name: block.name,
-          block_type: block.type,
-          status_analysis: newStatus
-        });
-        const prefix = dryRun ? '[DRY RUN] ' : '';
-        logger.info(`${prefix}Updated Status Ninja custom block: ${projectName} / ${block.name}`);
       }
+
+      const prefix = dryRun ? '[DRY RUN] ' : '';
+      logger.info(`${prefix}Updated block: ${projectName} / ${block.name}`);
     }
   } catch (error) {
     logger.error('Error saving analysis results:', error);
@@ -171,28 +175,6 @@ async function saveAnalysisResults(
   }
 }
 
-function getStandardFieldMapping(dashboardBlockName: string): string | null {
-  const mapping: Record<string, string> = {
-    'documents': 'doc',
-    'storyboard': 'storyboard_cult',
-    'casting': 'casting_cult',
-    'location': 'location_cult',
-    'props': 'props_cult',
-    'wardrobe': 'clothes_cult',
-    'editing': 'editing_cult',
-    'voice': 'vo_cult',
-    'music': 'music_cult',
-    'color': 'colorgrading_cult',
-    'photos': 'photos_cult',
-    'cg': 'cg_cult',
-    'animatic': 'animatic_cult',
-    'modelling': 'modelling_cult',
-    'styleshots': 'styleshots_cult',
-    'animation': 'animation_cult'
-  };
-
-  return mapping[dashboardBlockName] || null;
-}
 
 function formatUpdateText(
   blocks: DashboardBlock[],
@@ -203,7 +185,7 @@ function formatUpdateText(
   interface StatusItem {
     name: string;
     status: string;
-    category: 'important' | 'in_progress' | 'approved' | 'dates';
+    category: 'important' | 'in_progress' | 'approved' | 'dates' | 'no_info';
   }
 
   const changedStatuses: StatusItem[] = [];
@@ -217,7 +199,7 @@ function formatUpdateText(
     }
 
     const displayName = block.type === 'standard'
-      ? formatStandardBlockName(block.name)
+      ? getBlockDisplayName(block.name)
       : block.name;
 
     const category = categorizeStatus(newStatus);
@@ -272,55 +254,3 @@ function formatUpdateText(
   return prefix + sections.join('\n\n');
 }
 
-function categorizeStatus(status: string): 'important' | 'in_progress' | 'approved' | 'dates' {
-  const lowerStatus = status.toLowerCase();
-
-  const importantKeywords = [
-    'важно', 'необходимо', 'срочно', 'нужно утвердить', 'требуется',
-    'критично', 'обязательно', 'должны', 'надо'
-  ];
-
-  const approvedKeywords = [
-    'согласовано', 'утверждено', 'одобрено', 'окнули', 'ок от клиента',
-    'подписан', 'готов', 'завершен', 'принято', 'финальн'
-  ];
-
-  const datePattern = /\d{1,2}[.\-\/]\d{1,2}|\d{1,2}\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)|PPM|pre-PPM|съемка|презентация/i;
-
-  if (importantKeywords.some(keyword => lowerStatus.includes(keyword))) {
-    return 'important';
-  }
-
-  if (approvedKeywords.some(keyword => lowerStatus.includes(keyword))) {
-    return 'approved';
-  }
-
-  if (datePattern.test(status)) {
-    return 'dates';
-  }
-
-  return 'in_progress';
-}
-
-function formatStandardBlockName(blockName: string): string {
-  const names: Record<string, string> = {
-    'documents': 'Договор',
-    'storyboard': 'Раскадровка',
-    'casting': 'Кастинг',
-    'location': 'Локации',
-    'props': 'Реквизит',
-    'wardrobe': 'Одежда',
-    'editing': 'Монтаж',
-    'voice': 'Войсовер',
-    'music': 'Музыка',
-    'color': 'Цветокоррекция',
-    'photos': 'Фото',
-    'cg': 'CG',
-    'animatic': 'Аниматик',
-    'modelling': 'Моделирование',
-    'styleshots': 'Стайлшоты',
-    'animation': 'Анимация'
-  };
-
-  return names[blockName] || blockName;
-}

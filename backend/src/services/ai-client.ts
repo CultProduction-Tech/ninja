@@ -7,21 +7,6 @@ const DEFAULT_TIMEOUT = 120000;
 const LONG_TIMEOUT = 300000;
 
 export class AIServiceClient {
-  static async analyzeProjectStatus(params: {
-    projectId: number;
-    projectName: string;
-    currentStatus: any;
-    conversation: string;
-  }) {
-    try {
-      const response = await axios.post(`${AI_SERVICE_URL}/analyze/status`, params);
-      return response.data;
-    } catch (error) {
-      logger.error('Error calling AI service for status analysis:', error);
-      throw error;
-    }
-  }
-
   static async chatWithContext(params: {
     userId: string;
     message: string;
@@ -51,20 +36,6 @@ export class AIServiceClient {
       return response.data;
     } catch (error) {
       logger.error('Error calling AI service for chat:', error);
-      throw error;
-    }
-  }
-
-  static async analyzeStage(params: {
-    stage: string;
-    conversation: string;
-    currentValue?: string;
-  }) {
-    try {
-      const response = await axios.post(`${AI_SERVICE_URL}/analyze/stage`, params);
-      return response.data;
-    } catch (error) {
-      logger.error(`Error analyzing stage ${params.stage}:`, error);
       throw error;
     }
   }

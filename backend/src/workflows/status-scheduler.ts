@@ -4,6 +4,10 @@ import { SupabaseClient, getDefaultClientSettings } from '../database/supabase';
 import { DashboardClient } from '../database/dashboard-supabase';
 import { getSmartBot } from '../bot/smart-bot';
 import { AIServiceClient } from '../services/ai-client';
+import {
+  getBlockDisplayName,
+  categorizeStatus,
+} from '../shared/block-registry';
 
 export function startStatusScheduler() {
   const cronSchedule = '0 * * * *';
@@ -106,6 +110,7 @@ async function sendStatusToProducer(project: any) {
 
     const TEST_MODE = process.env.TEST_MODE === 'true';
     const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
+    const DRY_RUN = process.env.DRY_RUN === 'true';
 
     const clientSettings = await SupabaseClient.getClientSettings(project.project_id);
     const format = clientSettings.format_status || 'длинный';
@@ -117,46 +122,27 @@ async function sendStatusToProducer(project: any) {
       return;
     }
 
-    const DRY_RUN = process.env.DRY_RUN === 'true';
-    const projectData = DRY_RUN
-      ? await SupabaseClient.getProjectTest(project.project_id)
-      : await SupabaseClient.getProject(project.project_id);
+    // Все блоки читаем из единого хранилища custom_block_statuses
+    let allStatuses = await SupabaseClient.getCustomBlockStatuses(project.project_id);
 
-    if (DRY_RUN) {
-      logger.info(`[DRY RUN] Reading statuses from projects_test table`);
-    }
+    // Если у каких-то блоков нет статуса — анализируем на лету
+    const missingBlocks = activeBlocks.filter(block => {
+      const blockId = block.id || block.name;
+      return !allStatuses.find(s => s.block_id === blockId && s.status_analysis);
+    });
 
-    let customStatuses = await SupabaseClient.getCustomBlockStatuses(project.project_id);
-
-    const customBlocks = activeBlocks.filter(b => b.type !== 'standard');
-    if (customBlocks.length > 0) {
-      const missingBlocks = customBlocks.filter(block =>
-        !customStatuses.find(s => s.block_id === block.id && s.status_analysis)
-      );
-
-      if (missingBlocks.length > 0) {
-        logger.info(`Missing statuses for ${missingBlocks.length} custom blocks, analyzing on-demand...`);
-
-        const newStatuses = await analyzeCustomBlocksOnDemand(project, missingBlocks);
-
-        customStatuses = [...customStatuses, ...newStatuses];
-      }
+    if (missingBlocks.length > 0) {
+      logger.info(`Missing statuses for ${missingBlocks.length} blocks, analyzing on-demand...`);
+      const newStatuses = await analyzeCustomBlocksOnDemand(project, missingBlocks);
+      allStatuses = [...allStatuses, ...newStatuses];
     }
 
     const statusMap: Record<string, string> = {};
     for (const block of activeBlocks) {
       const blockKey = block.id || block.name;
-
-      if (block.type !== 'standard') {
-        const customStatus = customStatuses.find(s => s.block_id === block.id);
-        if (customStatus && customStatus.status_analysis) {
-          statusMap[blockKey] = customStatus.status_analysis;
-        }
-      } else {
-        const fieldName = getStandardFieldMapping(block.name);
-        if (fieldName && projectData && projectData[fieldName]) {
-          statusMap[blockKey] = projectData[fieldName];
-        }
+      const status = allStatuses.find(s => s.block_id === blockKey);
+      if (status && status.status_analysis) {
+        statusMap[blockKey] = status.status_analysis;
       }
     }
 
@@ -263,44 +249,6 @@ async function analyzeCustomBlocksOnDemand(project: any, customBlocks: any[]): P
   }
 }
 
-export function getStandardFieldMapping(dashboardBlockName: string): string | null {
-  const mapping: Record<string, string> = {
-    'documents': 'doc',
-    'storyboard': 'storyboard_cult',
-    'casting': 'casting_cult',
-    'location': 'location_cult',
-    'props': 'props_cult',
-    'wardrobe': 'clothes_cult',
-    'editing': 'editing_cult',
-    'voice': 'vo_cult',
-    'music': 'music_cult',
-    'color': 'colorgrading_cult',
-    'photos': 'photos_cult',
-    'cg': 'cg_cult',
-    'animatic': 'animatic_cult',
-    'modelling': 'modelling_cult',
-    'styleshots': 'styleshots_cult',
-    'animation': 'animation_cult',
-    'Документы': 'doc',
-    'Раскадровка': 'storyboard_cult',
-    'Кастинг': 'casting_cult',
-    'Локация': 'location_cult',
-    'Реквизит': 'props_cult',
-    'Костюмы': 'clothes_cult',
-    'Монтаж': 'editing_cult',
-    'Озвучка': 'vo_cult',
-    'Музыка': 'music_cult',
-    'Цветокоррекция': 'colorgrading_cult',
-    'Фото': 'photos_cult',
-    'CG': 'cg_cult',
-    'Аниматик': 'animatic_cult',
-    'Моделирование': 'modelling_cult',
-    'Стайлшоты': 'styleshots_cult',
-    'Анимация': 'animation_cult'
-  };
-
-  return mapping[dashboardBlockName] || null;
-}
 
 export function formatStatusForClient(
   blocks: any[],
@@ -321,7 +269,7 @@ export function formatStatusForClient(
 
     if (status) {
       const displayName = block.type === 'standard'
-        ? formatStandardBlockName(block.name)
+        ? getBlockDisplayName(block.name)
         : block.name;
 
       const category = categorizeStatus(status);
@@ -387,62 +335,7 @@ export function formatStatusForClient(
   return sections.join('\n\n');
 }
 
-function categorizeStatus(status: string): 'important' | 'in_progress' | 'approved' | 'dates' | 'no_info' {
-  const lowerStatus = status.toLowerCase();
 
-  if (lowerStatus.includes('информация отсутствует') || lowerStatus.includes('нет информации')) {
-    return 'no_info';
-  }
-
-  const importantKeywords = [
-    'важно', 'необходимо', 'срочно', 'нужно утвердить', 'требуется',
-    'критично', 'обязательно', 'должны', 'надо'
-  ];
-
-  const approvedKeywords = [
-    'согласовано', 'утверждено', 'одобрено', 'окнули', 'ок от клиента',
-    'подписан', 'готов', 'завершен', 'принято', 'финальн'
-  ];
-
-  const datePattern = /\d{1,2}[.\-\/]\d{1,2}|\d{1,2}\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)|PPM|pre-PPM|съемка|презентация/i;
-
-  if (importantKeywords.some(keyword => lowerStatus.includes(keyword))) {
-    return 'important';
-  }
-
-  if (approvedKeywords.some(keyword => lowerStatus.includes(keyword))) {
-    return 'approved';
-  }
-
-  if (datePattern.test(status)) {
-    return 'dates';
-  }
-
-  return 'in_progress';
-}
-
-export function formatStandardBlockName(blockName: string): string {
-  const names: Record<string, string> = {
-    'documents': 'Договор',
-    'storyboard': 'Раскадровка',
-    'casting': 'Кастинг',
-    'location': 'Локации',
-    'props': 'Реквизит',
-    'wardrobe': 'Одежда',
-    'editing': 'Монтаж',
-    'voice': 'Войсовер',
-    'music': 'Музыка',
-    'color': 'Цветокоррекция',
-    'photos': 'Фото',
-    'cg': 'CG',
-    'animatic': 'Аниматик',
-    'modelling': 'Моделирование',
-    'styleshots': 'Стайлшоты',
-    'animation': 'Анимация'
-  };
-
-  return names[blockName] || blockName;
-}
 
 function getDayOfWeek(date: Date): string {
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
