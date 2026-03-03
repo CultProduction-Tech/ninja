@@ -397,11 +397,23 @@ export class SmartBot {
           await ctx.reply('⚠️ Нет сообщений для анализа в чатах проекта');
         }
 
+        // Ручные статусы из дашборда (приоритет)
+        const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
+
+        // AI-статусы из custom_block_statuses
         const allStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
 
         const statusMap: Record<string, string> = {};
         for (const block of activeBlocks) {
           const blockKey = block.id || block.name;
+
+          // Ручной статус — приоритет
+          const manual = manualStatuses.get(blockKey);
+          if (manual) {
+            statusMap[blockKey] = manual.status;
+            continue;
+          }
+
           const status = allStatuses.find((s: any) => s.block_id === blockKey);
           if (status && status.status_analysis) {
             statusMap[blockKey] = status.status_analysis;

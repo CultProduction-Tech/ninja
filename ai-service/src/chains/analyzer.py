@@ -1,6 +1,6 @@
 from typing import Dict, Any, Optional, List
 from langchain_openai import ChatOpenAI
-from langchain.schema import HumanMessage, SystemMessage, AIMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from loguru import logger
 
 from ..config import settings
