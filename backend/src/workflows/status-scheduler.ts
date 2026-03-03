@@ -135,7 +135,8 @@ async function sendStatusToProducer(project: any) {
     // Блоки без статуса (ни ручного, ни AI) — анализируем на лету
     const missingBlocks = activeBlocks.filter(block => {
       const blockId = block.id || block.name;
-      if (manualStatuses.has(blockId)) return false; // есть ручной — не нужен AI
+      const manual = manualStatuses.get(blockId);
+      if (manual && manual.status !== 'Не определён') return false; // есть осмысленный ручной — не нужен AI
       return !allStatuses.find(s => s.block_id === blockId && s.status_analysis);
     });
 
@@ -150,9 +151,9 @@ async function sendStatusToProducer(project: any) {
     for (const block of activeBlocks) {
       const blockKey = block.id || block.name;
 
-      // Ручной статус из дашборда — приоритет
+      // Ручной статус из дашборда — приоритет (кроме "Не определён")
       const manual = manualStatuses.get(blockKey);
-      if (manual) {
+      if (manual && manual.status !== 'Не определён') {
         statusMap[blockKey] = manual.status;
         continue;
       }

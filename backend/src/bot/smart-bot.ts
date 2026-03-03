@@ -407,13 +407,14 @@ export class SmartBot {
         for (const block of activeBlocks) {
           const blockKey = block.id || block.name;
 
-          // Ручной статус — приоритет
+          // Ручной статус — приоритет (кроме "Не определён")
           const manual = manualStatuses.get(blockKey);
-          if (manual) {
+          if (manual && manual.status !== 'Не определён') {
             statusMap[blockKey] = manual.status;
             continue;
           }
 
+          // AI-статус
           const status = allStatuses.find((s: any) => s.block_id === blockKey);
           if (status && status.status_analysis) {
             statusMap[blockKey] = status.status_analysis;
@@ -562,8 +563,6 @@ export class SmartBot {
           try {
             logger.info(`Analyzing project: ${project.project_name} (ID: ${project.project_id})`);
 
-            await SupabaseClient.ensureProjectTestExists(project.project_id);
-
             const messages = await SupabaseClient.getLastMessagesForProject(project.project_id, 100);
 
             if (messages.length === 0) {
@@ -607,11 +606,15 @@ export class SmartBot {
                 status_analysis: newStatus
               });
 
-              // Стандартные блоки дополнительно в projects_test (dual-write)
+              // Стандартные блоки дополнительно в projects_test (dual-write, не критично)
               if (block.type === 'standard') {
                 const fieldName = getStandardFieldMapping(block.name);
                 if (fieldName) {
-                  await SupabaseClient.updateProjectTestField(project.project_id, fieldName, newStatus);
+                  try {
+                    await SupabaseClient.updateProjectTestField(project.project_id, fieldName, newStatus);
+                  } catch (dualWriteError) {
+                    logger.warn(`Dual-write to projects_test failed for ${block.name} (non-critical)`);
+                  }
                 }
               }
 
@@ -691,8 +694,6 @@ export class SmartBot {
           try {
             logger.info(`[FULL ANALYSIS] Analyzing project: ${project.project_name} (ID: ${project.project_id})`);
 
-            await SupabaseClient.ensureProjectTestExists(project.project_id);
-
             const messages = await SupabaseClient.getLastMessagesForProject(project.project_id, 10000);
 
             if (messages.length === 0) {
@@ -743,11 +744,15 @@ export class SmartBot {
                 status_analysis: newStatus
               });
 
-              // Стандартные блоки дополнительно в projects_test (dual-write)
+              // Стандартные блоки дополнительно в projects_test (dual-write, не критично)
               if (block.type === 'standard') {
                 const fieldName = getStandardFieldMapping(block.name);
                 if (fieldName) {
-                  await SupabaseClient.updateProjectTestField(project.project_id, fieldName, newStatus);
+                  try {
+                    await SupabaseClient.updateProjectTestField(project.project_id, fieldName, newStatus);
+                  } catch (dualWriteError) {
+                    logger.warn(`Dual-write to projects_test failed for ${block.name} (non-critical)`);
+                  }
                 }
               }
 
@@ -1411,15 +1416,19 @@ ${currentStatusContext}
           status_analysis: update.newStatus
         });
 
-        // Стандартные блоки дополнительно в projects/projects_test (dual-write)
+        // Стандартные блоки дополнительно в projects/projects_test (dual-write, не критично)
         if (block.type === 'standard') {
           const fieldName = getStandardFieldMapping(block.name);
           if (fieldName) {
-            if (DRY_RUN) {
-              await SupabaseClient.ensureProjectTestExists(projectId);
-              await SupabaseClient.updateProjectTestField(projectId, fieldName, update.newStatus);
-            } else {
-              await SupabaseClient.updateProjectField(projectId, fieldName, update.newStatus);
+            try {
+              if (DRY_RUN) {
+                await SupabaseClient.ensureProjectTestExists(projectId);
+                await SupabaseClient.updateProjectTestField(projectId, fieldName, update.newStatus);
+              } else {
+                await SupabaseClient.updateProjectField(projectId, fieldName, update.newStatus);
+              }
+            } catch (dualWriteError) {
+              logger.warn(`Dual-write failed for ${block.name} (non-critical)`);
             }
           }
         }

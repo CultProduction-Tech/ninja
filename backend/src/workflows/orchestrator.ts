@@ -94,22 +94,25 @@ async function processChat(chat: any, messageLimit: number, dryRun: boolean = fa
     // Загружаем ручные статусы из дашборда
     const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
 
-    // Фильтруем: блоки с ручным статусом не отправляем на AI-анализ
+    // Фильтруем: блоки с осмысленным ручным статусом не отправляем на AI-анализ
     const blocksForAI = activeBlocks.filter(block => {
       const blockKey = block.id || block.name;
-      return !manualStatuses.has(blockKey);
+      const manual = manualStatuses.get(blockKey);
+      return !manual || manual.status === 'Не определён';
     });
 
     if (manualStatuses.size > 0) {
       logger.info(`${manualStatuses.size} blocks have manual statuses (skipping AI analysis for them)`);
     }
 
-    // Собираем результаты: ручные статусы + AI-анализ
+    // Собираем результаты: ручные статусы (кроме "Не определён") + AI-анализ
     const analysisResults: Record<string, string> = {};
 
-    // Сначала добавляем ручные статусы
+    // Сначала добавляем осмысленные ручные статусы
     for (const [blockKey, manual] of manualStatuses) {
-      analysisResults[blockKey] = manual.status;
+      if (manual.status !== 'Не определён') {
+        analysisResults[blockKey] = manual.status;
+      }
     }
 
     // Затем анализируем остальные через AI
@@ -181,15 +184,19 @@ async function saveAnalysisResults(
         status_analysis: newStatus
       });
 
-      // Стандартные блоки дополнительно пишем в projects/projects_test (dual-write)
+      // Стандартные блоки дополнительно пишем в projects/projects_test (dual-write, не критично)
       if (block.type === 'standard') {
         const fieldMapping = getStandardFieldMapping(block.name);
         if (fieldMapping) {
-          if (!dryRun) {
-            await SupabaseClient.updateProjectField(projectId, fieldMapping, newStatus);
-          } else {
-            await SupabaseClient.ensureProjectTestExists(projectId);
-            await SupabaseClient.updateProjectTestField(projectId, fieldMapping, newStatus);
+          try {
+            if (!dryRun) {
+              await SupabaseClient.updateProjectField(projectId, fieldMapping, newStatus);
+            } else {
+              await SupabaseClient.ensureProjectTestExists(projectId);
+              await SupabaseClient.updateProjectTestField(projectId, fieldMapping, newStatus);
+            }
+          } catch (dualWriteError) {
+            logger.warn(`Dual-write failed for ${block.name} (non-critical):`, dualWriteError);
           }
         }
       }
