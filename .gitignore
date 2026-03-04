@@ -26,6 +26,7 @@ ai-service/__pycache__/
 ai-service/*.pyc
 ai-service/venv/
 ai-service/.pytest_cache/
+ai-service/data/
 
 # Docker
 docker-compose.override.yml

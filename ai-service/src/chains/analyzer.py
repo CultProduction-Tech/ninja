@@ -1,3 +1,4 @@
+import json
 from typing import Dict, Any, Optional, List
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
@@ -93,6 +94,94 @@ class StatusAnalyzer:
 
         return response.content
 
+    def _build_glossary_section(self) -> str:
+        """Собирает глоссарий из базовых + одобренных авто-терминов для вставки в system prompt."""
+        from ..glossary.base_glossary import BASE_GLOSSARY
+        from ..glossary.discovered import get_approved_terms
+
+        all_terms = {**BASE_GLOSSARY, **get_approved_terms()}
+
+        lines = ["ГЛОССАРИЙ ТЕРМИНОВ ВИДЕОПРОДАКШНА (используй для понимания сленга в переписке):"]
+        for term, definition in all_terms.items():
+            lines.append(f"- {term}: {definition}")
+        return "\n".join(lines)
+
+    async def discover_terms(self, conversation: str, project_name: str = "") -> List[Dict]:
+        """
+        AI-вызов: находит профессиональные термины, которых нет в глоссарии.
+        Возвращает: [{term, definition, confidence}]
+        """
+        from ..glossary.base_glossary import BASE_GLOSSARY
+        from ..glossary.discovered import get_approved_terms, load_discovered
+
+        known_terms = set(BASE_GLOSSARY.keys())
+        known_terms.update(get_approved_terms().keys())
+        # Также исключаем уже обнаруженные (pending/rejected)
+        all_discovered = load_discovered().get("terms", {})
+        known_terms.update(all_discovered.keys())
+
+        known_list = ", ".join(sorted(known_terms))
+
+        prompt = f"""Ты — лингвист-эксперт по видеопродакшну. Прочитай переписку и найди профессиональные термины, сленг и аббревиатуры, которых НЕТ в текущем глоссарии.
+
+ТЕКУЩИЙ ГЛОССАРИЙ (эти термины уже известны, НЕ включай их):
+{known_list}
+
+ПЕРЕПИСКА:
+{conversation}
+
+ЗАДАЧА:
+1. Найди профессиональные термины видеопродакшна, рекламной индустрии, дизайна
+2. Найди сленговые выражения и аббревиатуры
+3. НЕ включай общеупотребительные слова и обычную речь
+4. НЕ включай имена людей, названия компаний, даты
+
+Верни JSON-массив (только JSON, без markdown):
+[
+  {{"term": "термин", "definition": "краткое определение на русском", "confidence": 0.8}},
+  ...
+]
+
+confidence — уверенность что это профессиональный термин (0.0-1.0).
+Включай только термины с confidence >= 0.6.
+Если новых терминов нет — верни пустой массив: []"""
+
+        try:
+            discover_llm = ChatOpenAI(
+                model=settings.openrouter_model,
+                openai_api_key=settings.openrouter_api_key,
+                openai_api_base="https://openrouter.ai/api/v1",
+                temperature=0.1,
+                max_tokens=1000,
+            )
+
+            messages = [
+                SystemMessage(content="Ты — лингвист-эксперт. Отвечай строго в формате JSON."),
+                HumanMessage(content=prompt)
+            ]
+
+            response = await discover_llm.ainvoke(messages)
+            raw = response.content.strip()
+
+            # Убираем markdown обёртку если есть
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+                if raw.endswith("```"):
+                    raw = raw[:-3]
+                raw = raw.strip()
+
+            terms = json.loads(raw)
+
+            # Фильтруем по confidence
+            terms = [t for t in terms if t.get("confidence", 0) >= 0.6]
+
+            logger.info(f"Discovered {len(terms)} new terms from project '{project_name}'")
+            return terms
+
+        except Exception as e:
+            logger.error(f"Error discovering terms: {e}")
+            return []
+
     async def analyze_dynamic_blocks(
         self,
         project_name: str,
@@ -113,8 +202,12 @@ class StatusAnalyzer:
 
             prompt = self._create_block_prompt(block_name, block_type, current_status, conversation)
 
+            glossary_text = self._build_glossary_section()
+
             messages = [
-                SystemMessage(content="""Ты — эксперт-аналитик проектных коммуникаций.
+                SystemMessage(content=f"""Ты — эксперт-аналитик проектных коммуникаций.
+
+{glossary_text}
 
 КРИТИЧЕСКИЕ ТРЕБОВАНИЯ:
 1. Анализируй ТОЛЬКО то, что ЯВНО написано в переписке
@@ -301,7 +394,11 @@ class StatusAnalyzer:
         conversation: str,
         message_count: int
     ) -> dict:
+        glossary_text = self._build_glossary_section()
+
         prompt = f"""Ты - ассистент проектного менеджера. Твоя задача - ответить на вопрос используя ТОЛЬКО информацию из переписки.
+
+{glossary_text}
 
 ПРОЕКТ: "{project_name}"
 

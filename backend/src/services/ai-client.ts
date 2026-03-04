@@ -84,4 +84,73 @@ export class AIServiceClient {
       throw error;
     }
   }
+
+  static async getGlossary(): Promise<{
+    base: Record<string, string>;
+    approved: Record<string, string>;
+    pending: Record<string, string>;
+    stats: {
+      base_count: number;
+      discovered_total: number;
+      pending: number;
+      approved: number;
+      rejected: number;
+      active_total: number;
+    };
+  }> {
+    try {
+      const response = await axios.get(`${AI_SERVICE_URL}/glossary`, {
+        timeout: DEFAULT_TIMEOUT
+      });
+      return response.data;
+    } catch (error) {
+      logger.error('Error calling AI service for glossary:', error);
+      throw error;
+    }
+  }
+
+  static async discoverGlossaryTerms(params: {
+    conversation: string;
+    projectName?: string;
+  }): Promise<{
+    discovered: Array<{ term: string; definition: string; confidence: number }>;
+    newTermsAdded: number;
+  }> {
+    try {
+      const timeout = params.conversation.length > 10000 ? LONG_TIMEOUT : DEFAULT_TIMEOUT;
+      logger.info(`AI glossary discover request (${params.conversation.length} chars, timeout: ${timeout}ms)`);
+
+      const response = await axios.post(`${AI_SERVICE_URL}/glossary/discover`, params, {
+        timeout: timeout
+      });
+      return response.data;
+    } catch (error) {
+      logger.error('Error calling AI service for glossary discovery:', error);
+      throw error;
+    }
+  }
+
+  static async approveGlossaryTerm(term: string): Promise<{ status: string; term: string }> {
+    try {
+      const response = await axios.post(`${AI_SERVICE_URL}/glossary/approve`, { term }, {
+        timeout: DEFAULT_TIMEOUT
+      });
+      return response.data;
+    } catch (error) {
+      logger.error('Error calling AI service to approve glossary term:', error);
+      throw error;
+    }
+  }
+
+  static async rejectGlossaryTerm(term: string): Promise<{ status: string; term: string }> {
+    try {
+      const response = await axios.post(`${AI_SERVICE_URL}/glossary/reject`, { term }, {
+        timeout: DEFAULT_TIMEOUT
+      });
+      return response.data;
+    } catch (error) {
+      logger.error('Error calling AI service to reject glossary term:', error);
+      throw error;
+    }
+  }
 }

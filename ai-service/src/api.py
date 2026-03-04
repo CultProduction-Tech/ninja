@@ -6,6 +6,7 @@ from loguru import logger
 
 from .chains.analyzer import StatusAnalyzer
 from .memory.conversation import ConversationMemory
+from .glossary import discovered as glossary_discovered
 
 app = FastAPI(title="Ninja Status AI Service", version="1.0.0")
 
@@ -150,6 +151,88 @@ async def answer_question(request: QuestionRequest):
 
     except Exception as e:
         logger.error(f"Error answering question: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class DiscoverGlossaryRequest(BaseModel):
+    conversation: str
+    projectName: Optional[str] = ""
+
+
+class GlossaryTermAction(BaseModel):
+    term: str
+
+
+@app.post("/glossary/discover")
+async def discover_glossary_terms(request: DiscoverGlossaryRequest):
+    try:
+        logger.info(f"Discovering glossary terms for project '{request.projectName}'")
+
+        terms = await status_analyzer.discover_terms(
+            conversation=request.conversation,
+            project_name=request.projectName
+        )
+
+        added = glossary_discovered.add_discovered_terms(terms, source_project=request.projectName)
+
+        return {
+            "discovered": terms,
+            "newTermsAdded": added,
+        }
+
+    except Exception as e:
+        logger.error(f"Error discovering glossary terms: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/glossary")
+async def get_glossary():
+    try:
+        from .glossary.base_glossary import BASE_GLOSSARY
+
+        approved = glossary_discovered.get_approved_terms()
+        pending = glossary_discovered.get_pending_terms()
+        stats = glossary_discovered.get_glossary_stats()
+
+        return {
+            "base": BASE_GLOSSARY,
+            "approved": approved,
+            "pending": {term: info["definition"] for term, info in pending.items()},
+            "stats": stats,
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting glossary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/glossary/approve")
+async def approve_glossary_term(request: GlossaryTermAction):
+    try:
+        success = glossary_discovered.approve_term(request.term)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Term '{request.term}' not found")
+        return {"status": "approved", "term": request.term}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error approving term: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/glossary/reject")
+async def reject_glossary_term(request: GlossaryTermAction):
+    try:
+        success = glossary_discovered.reject_term(request.term)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Term '{request.term}' not found")
+        return {"status": "rejected", "term": request.term}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error rejecting term: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

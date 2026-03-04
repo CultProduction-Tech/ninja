@@ -54,6 +54,12 @@ export class SmartBot {
           message += '🔸 /admin_analyze [ID] - анализ последних 100 сообщений\n';
           message += '🔸 /admin_analyze_full [ID] - ПОЛНЫЙ анализ ВСЕХ сообщений ⚡\n';
           message += '🔸 /admin_send [ID] - отправка статусов (один проект или все)\n';
+          message += '\n📚 ГЛОССАРИЙ:\n';
+          message += '🔸 /admin_glossary - статистика + pending термины\n';
+          message += '🔸 /admin_glossary_discover [ID] - найти новые термины из переписки\n';
+          message += '🔸 /admin_glossary_approve <термин> - одобрить термин\n';
+          message += '🔸 /admin_glossary_reject <термин> - отклонить термин\n';
+          message += '🔸 /admin_glossary_approve_all - одобрить все pending\n';
           message += '\n💡 Без указания ID команды применяются ко всем проектам';
         }
 
@@ -873,6 +879,233 @@ export class SmartBot {
         logger.error('Error in /admin_send:', error);
         const errorMsg = error instanceof Error ? error.message : String(error);
         ctx.reply(`❌ Ошибка при отправке: ${errorMsg}`);
+      }
+    });
+
+    // === GLOSSARY COMMANDS ===
+
+    this.bot.command('admin_glossary', async (ctx) => {
+      try {
+        const userId = ctx.from.id.toString();
+        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
+
+        if (userId !== TEST_TELEGRAM_ID) {
+          ctx.reply('⛔ У вас нет доступа к этой команде.');
+          return;
+        }
+
+        logger.info(`Admin: /admin_glossary from ${userId}`);
+
+        const glossary = await AIServiceClient.getGlossary();
+        const { stats } = glossary;
+
+        let message = '📚 ГЛОССАРИЙ ВИДЕОПРОДАКШНА\n\n';
+        message += `📊 Статистика:\n`;
+        message += `• Базовых терминов: ${stats.base_count}\n`;
+        message += `• Авто-обнаруженных: ${stats.discovered_total}\n`;
+        message += `  - ✅ Одобренных: ${stats.approved}\n`;
+        message += `  - ⏳ Ожидающих: ${stats.pending}\n`;
+        message += `  - ❌ Отклонённых: ${stats.rejected}\n`;
+        message += `• Всего активных: ${stats.active_total}\n`;
+
+        const pendingTerms = Object.entries(glossary.pending);
+        if (pendingTerms.length > 0) {
+          message += `\n⏳ PENDING ТЕРМИНЫ (${pendingTerms.length}):\n`;
+          for (const [term, definition] of pendingTerms) {
+            message += `\n• "${term}" — ${definition}\n`;
+            message += `  /admin_glossary_approve ${term}\n`;
+            message += `  /admin_glossary_reject ${term}\n`;
+          }
+          message += `\n💡 /admin_glossary_approve_all — одобрить все`;
+        } else {
+          message += '\n✅ Нет pending-терминов.';
+        }
+
+        ctx.reply(message);
+
+      } catch (error) {
+        logger.error('Error in /admin_glossary:', error);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        ctx.reply(`❌ Ошибка: ${errorMsg}`);
+      }
+    });
+
+    this.bot.command('admin_glossary_discover', async (ctx) => {
+      try {
+        const userId = ctx.from.id.toString();
+        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
+
+        if (userId !== TEST_TELEGRAM_ID) {
+          ctx.reply('⛔ У вас нет доступа к этой команде.');
+          return;
+        }
+
+        const args = ctx.message.text.split(' ');
+
+        if (args.length < 2) {
+          ctx.reply('⚠️ Укажите ID проекта: /admin_glossary_discover 42');
+          return;
+        }
+
+        const projectId = parseInt(args[1], 10);
+        if (isNaN(projectId)) {
+          ctx.reply('⚠️ ID проекта должен быть числом');
+          return;
+        }
+
+        const project = await SupabaseClient.getProject(projectId);
+        if (!project) {
+          ctx.reply(`❌ Проект ${projectId} не найден`);
+          return;
+        }
+
+        logger.info(`Admin: /admin_glossary_discover ${projectId} from ${userId}`);
+        await ctx.reply(`🔍 Ищу новые термины в проекте "${project.project_name}"...`);
+
+        const messages = await SupabaseClient.getLastMessagesForProject(project.project_id, 100);
+
+        if (messages.length === 0) {
+          ctx.reply('⚠️ Нет сообщений для анализа');
+          return;
+        }
+
+        const conversationText = await SupabaseClient.formatConversationWithRoles(messages);
+
+        const result = await AIServiceClient.discoverGlossaryTerms({
+          conversation: conversationText,
+          projectName: project.project_name
+        });
+
+        let message = `📚 Обнаружение терминов для "${project.project_name}":\n\n`;
+
+        if (result.discovered.length === 0) {
+          message += '✅ Новых терминов не найдено.';
+        } else {
+          message += `🔍 Найдено: ${result.discovered.length} терминов\n`;
+          message += `➕ Новых добавлено: ${result.newTermsAdded}\n\n`;
+
+          for (const term of result.discovered) {
+            const conf = Math.round(term.confidence * 100);
+            message += `• "${term.term}" — ${term.definition} (${conf}%)\n`;
+          }
+
+          if (result.newTermsAdded > 0) {
+            message += `\n💡 /admin_glossary — посмотреть pending термины`;
+          }
+        }
+
+        ctx.reply(message);
+
+      } catch (error) {
+        logger.error('Error in /admin_glossary_discover:', error);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        ctx.reply(`❌ Ошибка: ${errorMsg}`);
+      }
+    });
+
+    this.bot.command('admin_glossary_approve_all', async (ctx) => {
+      try {
+        const userId = ctx.from.id.toString();
+        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
+
+        if (userId !== TEST_TELEGRAM_ID) {
+          ctx.reply('⛔ У вас нет доступа к этой команде.');
+          return;
+        }
+
+        logger.info(`Admin: /admin_glossary_approve_all from ${userId}`);
+
+        // Get pending terms first, then approve each one
+        const glossary = await AIServiceClient.getGlossary();
+        const pendingTerms = Object.keys(glossary.pending);
+
+        if (pendingTerms.length === 0) {
+          ctx.reply('✅ Нет pending-терминов для одобрения.');
+          return;
+        }
+
+        let approved = 0;
+        for (const term of pendingTerms) {
+          try {
+            await AIServiceClient.approveGlossaryTerm(term);
+            approved++;
+          } catch {
+            logger.warn(`Failed to approve term: ${term}`);
+          }
+        }
+
+        ctx.reply(`✅ Одобрено ${approved} из ${pendingTerms.length} терминов.\n\n💡 Теперь AI будет использовать их при анализе.`);
+
+      } catch (error) {
+        logger.error('Error in /admin_glossary_approve_all:', error);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        ctx.reply(`❌ Ошибка: ${errorMsg}`);
+      }
+    });
+
+    this.bot.command('admin_glossary_approve', async (ctx) => {
+      try {
+        const userId = ctx.from.id.toString();
+        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
+
+        if (userId !== TEST_TELEGRAM_ID) {
+          ctx.reply('⛔ У вас нет доступа к этой команде.');
+          return;
+        }
+
+        const args = ctx.message.text.split(' ').slice(1).join(' ').trim();
+
+        if (!args) {
+          ctx.reply('⚠️ Укажите термин: /admin_glossary_approve ОС');
+          return;
+        }
+
+        logger.info(`Admin: /admin_glossary_approve "${args}" from ${userId}`);
+
+        const result = await AIServiceClient.approveGlossaryTerm(args);
+        ctx.reply(`✅ Термин "${result.term}" одобрен.\n\n💡 AI будет использовать его при следующем анализе.`);
+
+      } catch (error: any) {
+        logger.error('Error in /admin_glossary_approve:', error);
+        if (error?.response?.status === 404) {
+          ctx.reply('❌ Термин не найден в списке обнаруженных.');
+        } else {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          ctx.reply(`❌ Ошибка: ${errorMsg}`);
+        }
+      }
+    });
+
+    this.bot.command('admin_glossary_reject', async (ctx) => {
+      try {
+        const userId = ctx.from.id.toString();
+        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
+
+        if (userId !== TEST_TELEGRAM_ID) {
+          ctx.reply('⛔ У вас нет доступа к этой команде.');
+          return;
+        }
+
+        const args = ctx.message.text.split(' ').slice(1).join(' ').trim();
+
+        if (!args) {
+          ctx.reply('⚠️ Укажите термин: /admin_glossary_reject термин');
+          return;
+        }
+
+        logger.info(`Admin: /admin_glossary_reject "${args}" from ${userId}`);
+
+        const result = await AIServiceClient.rejectGlossaryTerm(args);
+        ctx.reply(`❌ Термин "${result.term}" отклонён.`);
+
+      } catch (error: any) {
+        logger.error('Error in /admin_glossary_reject:', error);
+        if (error?.response?.status === 404) {
+          ctx.reply('❌ Термин не найден в списке обнаруженных.');
+        } else {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          ctx.reply(`❌ Ошибка: ${errorMsg}`);
+        }
       }
     });
 
