@@ -8,6 +8,7 @@ import {
   getBlockDisplayName,
   categorizeStatus,
 } from '../shared/block-registry';
+import { isInQuietHours, checkWeekendPolicy } from '../utils/schedule-helpers';
 
 export function startStatusScheduler() {
   const cronSchedule = '0 * * * *';
@@ -71,6 +72,19 @@ async function shouldSendStatusNow(
   try {
     const settings = await SupabaseClient.getClientSettings(projectId);
     const defaults = getDefaultClientSettings();
+
+    // Проверка тихого режима
+    if (isInQuietHours(settings.quiet_from, settings.quiet_to)) {
+      logger.info(`Project ${projectId}: Skipping - quiet hours (${settings.quiet_from} - ${settings.quiet_to})`);
+      return false;
+    }
+
+    // Проверка выходных
+    const weekendPolicy = checkWeekendPolicy(settings.weekend);
+    if (weekendPolicy.blocked) {
+      logger.info(`Project ${projectId}: Skipping - weekends disabled`);
+      return false;
+    }
 
     const frequencyDays = settings.status_frequency_day || defaults.status_frequency_day;
     const frequencyTime = settings.status_frequency_time || defaults.status_frequency_time;
@@ -165,7 +179,14 @@ async function sendStatusToProducer(project: any) {
       }
     }
 
-    let updateText = formatStatusForClient(activeBlocks, statusMap, format);
+    // Проверка выходных — urgent only
+    const weekendPolicy = checkWeekendPolicy(clientSettings.weekend);
+    let updateText = formatStatusForClient(activeBlocks, statusMap, format, weekendPolicy.urgentOnly);
+
+    if (!updateText || updateText.trim() === '') {
+      logger.info(`Project ${project.project_id}: No statuses to send (urgentOnly=${weekendPolicy.urgentOnly}), skipping`);
+      return;
+    }
 
     let recipientTgId: string;
     let recipientInfo: string;
@@ -272,12 +293,14 @@ async function analyzeCustomBlocksOnDemand(project: any, customBlocks: any[]): P
 export function formatStatusForClient(
   blocks: any[],
   statusMap: Record<string, string>,
-  format: 'короткий' | 'длинный'
+  format: 'короткий' | 'длинный',
+  urgentOnly: boolean = false
 ): string {
   interface StatusItem {
     name: string;
     status: string;
     category: 'important' | 'in_progress' | 'approved' | 'dates' | 'no_info';
+    phase: 'pre' | 'post';
   }
 
   const statuses: StatusItem[] = [];
@@ -292,7 +315,7 @@ export function formatStatusForClient(
         : block.name;
 
       const category = categorizeStatus(status);
-      statuses.push({ name: displayName, status, category });
+      statuses.push({ name: displayName, status, category, phase: block.phase || 'pre' });
     }
   }
 
@@ -300,15 +323,22 @@ export function formatStatusForClient(
     return 'Нет актуальной информации о статусе проекта';
   }
 
-  const important = statuses.filter(s => s.category === 'important');
-  const approved = statuses.filter(s => s.category === 'approved');
-  const dates = statuses.filter(s => s.category === 'dates');
-  const inProgress = statuses.filter(s => s.category === 'in_progress');
-  const noInfo = statuses.filter(s => s.category === 'no_info');
+  // Режим выходных — только срочные
+  if (urgentOnly) {
+    const urgent = statuses.filter(s => s.category === 'important');
+    if (urgent.length === 0) return '';
+    return '❓ Срочное:\n' + urgent.map(s => `${s.status}`).join('\n\n');
+  }
 
   const sections: string[] = [];
 
   if (format === 'короткий') {
+    const important = statuses.filter(s => s.category === 'important');
+    const approved = statuses.filter(s => s.category === 'approved');
+    const dates = statuses.filter(s => s.category === 'dates');
+    const inProgress = statuses.filter(s => s.category === 'in_progress');
+    const noInfo = statuses.filter(s => s.category === 'no_info');
+
     if (important.length > 0) {
       sections.push('❓ Важно:\n' + important.map(s => `${s.status}`).join('\n\n'));
     }
@@ -330,24 +360,54 @@ export function formatStatusForClient(
     }
 
   } else {
-    if (important.length > 0) {
-      sections.push('❓ Важные вопросы:\n' + important.map(s => `${s.status}`).join('\n\n'));
+    // Длинный формат — группировка по этапам
+    const preStatuses = statuses.filter(s => s.phase === 'pre');
+    const postStatuses = statuses.filter(s => s.phase === 'post');
+
+    const formatPhase = (phaseStatuses: StatusItem[]): string[] => {
+      const phaseSections: string[] = [];
+
+      const important = phaseStatuses.filter(s => s.category === 'important');
+      const inProgress = phaseStatuses.filter(s => s.category === 'in_progress');
+      const approved = phaseStatuses.filter(s => s.category === 'approved');
+      const dates = phaseStatuses.filter(s => s.category === 'dates');
+      const noInfo = phaseStatuses.filter(s => s.category === 'no_info');
+
+      if (important.length > 0) {
+        phaseSections.push('❓ Важные вопросы:\n' + important.map(s => `${s.status}`).join('\n\n'));
+      }
+
+      if (inProgress.length > 0) {
+        phaseSections.push(inProgress.map(s => `📍 ${s.name}\n${s.status}`).join('\n\n'));
+      }
+
+      if (dates.length > 0) {
+        phaseSections.push(dates.map(s => `📍 ${s.name}\n${s.status}`).join('\n\n'));
+      }
+
+      if (approved.length > 0) {
+        phaseSections.push('✅ Согласовано:\n' + approved.map(s => `- ${s.name}`).join('\n'));
+      }
+
+      if (noInfo.length > 0) {
+        phaseSections.push('📋 Нет информации:\n' + noInfo.map(s => `- ${s.name}`).join('\n'));
+      }
+
+      return phaseSections;
+    };
+
+    if (preStatuses.length > 0) {
+      const preSections = formatPhase(preStatuses);
+      if (preSections.length > 0) {
+        sections.push('🎬 Пре-продакшн:\n\n' + preSections.join('\n\n'));
+      }
     }
 
-    if (inProgress.length > 0) {
-      sections.push('Наши процессы:\n\n' + inProgress.map(s => `📍 ${s.name}\n${s.status}`).join('\n\n'));
-    }
-
-    if (approved.length > 0) {
-      sections.push('✅ Согласовано:\n' + approved.map(s => `- ${s.name}`).join('\n'));
-    }
-
-    if (dates.length > 0) {
-      sections.push('‼️ Важные даты и этапы проекта:\n' + dates.map(s => `${s.status}`).join('\n\n'));
-    }
-
-    if (noInfo.length > 0) {
-      sections.push('📋 Нет информации:\n' + noInfo.map(s => `- ${s.name}`).join('\n'));
+    if (postStatuses.length > 0) {
+      const postSections = formatPhase(postStatuses);
+      if (postSections.length > 0) {
+        sections.push('🎞️ Пост-продакшн:\n\n' + postSections.join('\n\n'));
+      }
     }
   }
 

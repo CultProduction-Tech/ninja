@@ -14,6 +14,7 @@ export interface DashboardBlock {
   id: string;
   name: string;
   type: 'standard' | 'custom_pre' | 'custom_post';
+  phase: 'pre' | 'post';
 }
 
 export interface ManualStatus {
@@ -55,7 +56,8 @@ export class DashboardClient {
           blocks.push({
             id: block.id,
             name: block.name,
-            type: block.type
+            type: block.type,
+            phase: 'pre'
           });
         }
       }
@@ -65,7 +67,8 @@ export class DashboardClient {
           blocks.push({
             id: block.id,
             name: block.name,
-            type: block.type
+            type: block.type,
+            phase: 'post'
           });
         }
       }

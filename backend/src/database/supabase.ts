@@ -466,5 +466,14 @@ export function getDefaultClientSettings() {
     status_frequency_day: 'Mon,Tue,Wed,Thu,Fri',
     status_frequency_time: '10:00:00+03',
     format_status: 'длинный',
+    quiet_from: null as string | null,
+    quiet_to: null as string | null,
+    weekend: null as string | null,
+    response_time_work: null as number | null,
+    response_time_off: null as number | null,
+    approval_time: null as string | null,
+    deadline_date: null as string | null,
+    skip_link_notifications: false,
+    skip_deadline_notifications: false,
   };
 }

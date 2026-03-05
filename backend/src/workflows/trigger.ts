@@ -3,6 +3,7 @@ import { logger } from '../utils/logger';
 import { SupabaseClient } from '../database/supabase';
 import { runStatusUpdate } from './orchestrator';
 import { getSmartBot } from '../bot/smart-bot';
+import { isInQuietHours, checkWeekendPolicy } from '../utils/schedule-helpers';
 
 export function startScheduler() {
   const cronSchedule = process.env.STATUS_UPDATE_CRON || '0 */8 * * *';
@@ -60,9 +61,33 @@ export async function checkAndTriggerUpdate() {
     const updates = await runStatusUpdate();
 
     if (updates && Object.keys(updates).length > 0) {
-      const smartBot = getSmartBot();
-      await smartBot.notifyAllProducers(updates);
-      logger.info('Sent notifications to producers');
+      // Фильтруем проекты в тихих часах или с выключенными выходными
+      const filteredUpdates: Record<number, string> = {};
+      for (const [projectIdStr, updateText] of Object.entries(updates)) {
+        const projectId = Number(projectIdStr);
+        const settings = await SupabaseClient.getClientSettings(projectId);
+
+        if (isInQuietHours(settings.quiet_from, settings.quiet_to)) {
+          logger.info(`Project ${projectId}: Skipping notification - quiet hours`);
+          continue;
+        }
+
+        const weekendPolicy = checkWeekendPolicy(settings.weekend);
+        if (weekendPolicy.blocked) {
+          logger.info(`Project ${projectId}: Skipping notification - weekends disabled`);
+          continue;
+        }
+
+        filteredUpdates[projectId] = updateText as string;
+      }
+
+      if (Object.keys(filteredUpdates).length > 0) {
+        const smartBot = getSmartBot();
+        await smartBot.notifyAllProducers(filteredUpdates);
+        logger.info('Sent notifications to producers');
+      } else {
+        logger.info('All notifications filtered out (quiet hours / weekends)');
+      }
     }
 
     logger.info('Status update completed');

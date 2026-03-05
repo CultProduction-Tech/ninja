@@ -221,6 +221,7 @@ function formatUpdateText(
     name: string;
     status: string;
     category: 'important' | 'in_progress' | 'approved' | 'dates' | 'no_info';
+    phase: 'pre' | 'post';
   }
 
   const changedStatuses: StatusItem[] = [];
@@ -238,7 +239,7 @@ function formatUpdateText(
       : block.name;
 
     const category = categorizeStatus(newStatus);
-    changedStatuses.push({ name: displayName, status: newStatus, category });
+    changedStatuses.push({ name: displayName, status: newStatus, category, phase: block.phase || 'pre' });
   }
 
   if (changedStatuses.length === 0) {
@@ -247,15 +248,14 @@ function formatUpdateText(
       : 'Нет изменений в статусах';
   }
 
-  const important = changedStatuses.filter(s => s.category === 'important');
-  const approved = changedStatuses.filter(s => s.category === 'approved');
-  const dates = changedStatuses.filter(s => s.category === 'dates');
-  const inProgress = changedStatuses.filter(s => s.category === 'in_progress');
-
   const sections: string[] = [];
   const prefix = dryRun ? '[DRY RUN - сохранено в projects_test]\n\n' : '';
 
   if (format === 'короткий') {
+    const important = changedStatuses.filter(s => s.category === 'important');
+    const approved = changedStatuses.filter(s => s.category === 'approved');
+    const inProgress = changedStatuses.filter(s => s.category === 'in_progress');
+
     if (inProgress.length > 0) {
       sections.push(inProgress.map(s => `📍 ${s.name}\n${s.status}`).join('\n\n'));
     }
@@ -269,20 +269,49 @@ function formatUpdateText(
     }
 
   } else {
-    if (important.length > 0) {
-      sections.push('❓ Важные вопросы:\n' + important.map(s => `${s.status}`).join('\n\n'));
+    // Длинный формат — группировка по этапам
+    const preStatuses = changedStatuses.filter(s => s.phase === 'pre');
+    const postStatuses = changedStatuses.filter(s => s.phase === 'post');
+
+    const formatPhase = (phaseStatuses: StatusItem[]): string[] => {
+      const phaseSections: string[] = [];
+
+      const important = phaseStatuses.filter(s => s.category === 'important');
+      const inProgress = phaseStatuses.filter(s => s.category === 'in_progress');
+      const approved = phaseStatuses.filter(s => s.category === 'approved');
+      const dates = phaseStatuses.filter(s => s.category === 'dates');
+
+      if (important.length > 0) {
+        phaseSections.push('❓ Важные вопросы:\n' + important.map(s => `${s.status}`).join('\n\n'));
+      }
+
+      if (inProgress.length > 0) {
+        phaseSections.push(inProgress.map(s => `📍 ${s.name}\n${s.status}`).join('\n\n'));
+      }
+
+      if (approved.length > 0) {
+        phaseSections.push('✅ Согласовано:\n' + approved.map(s => `- ${s.name}`).join('\n'));
+      }
+
+      if (dates.length > 0) {
+        phaseSections.push('‼️ Важные даты:\n' + dates.map(s => `${s.status}`).join('\n\n'));
+      }
+
+      return phaseSections;
+    };
+
+    if (preStatuses.length > 0) {
+      const preSections = formatPhase(preStatuses);
+      if (preSections.length > 0) {
+        sections.push('🎬 Пре-продакшн:\n\n' + preSections.join('\n\n'));
+      }
     }
 
-    if (inProgress.length > 0) {
-      sections.push('Наши процессы:\n\n' + inProgress.map(s => `📍 ${s.name}\n${s.status}`).join('\n\n'));
-    }
-
-    if (approved.length > 0) {
-      sections.push('✅ Согласовано:\n' + approved.map(s => `- ${s.name}`).join('\n'));
-    }
-
-    if (dates.length > 0) {
-      sections.push('‼️ Важные даты и этапы проекта:\n' + dates.map(s => `${s.status}`).join('\n\n'));
+    if (postStatuses.length > 0) {
+      const postSections = formatPhase(postStatuses);
+      if (postSections.length > 0) {
+        sections.push('🎞️ Пост-продакшн:\n\n' + postSections.join('\n\n'));
+      }
     }
   }
 
