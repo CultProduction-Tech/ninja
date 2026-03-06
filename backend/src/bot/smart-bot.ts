@@ -4,7 +4,7 @@ import { AIServiceClient } from '../services/ai-client';
 import { SupabaseClient, getDefaultClientSettings } from '../database/supabase';
 import { DashboardClient } from '../database/dashboard-supabase';
 import { runStatusUpdate } from '../workflows/orchestrator';
-import { formatStatusForClient } from '../workflows/status-scheduler';
+import { formatStatusForClient, resolveMessageLinksHtml } from '../workflows/status-scheduler';
 import {
   getStandardFieldMapping,
   getBlockDisplayName,
@@ -105,30 +105,33 @@ export class SmartBot {
         const userType = await this.getUserType(userId);
         logger.info(`User ${userId} type: ${userType}`);
 
-        if (userType === 'producer') {
-          ctx.reply(
-          'Привет! Я — умный бот Статус Ниндзя 🥷\n\n' +
-          'Я автоматически анализирую чаты проектов и могу:\n' +
-          '• Отвечать на вопросы о статусах проектов\n' +
-          '• Искать информацию по проектам\n' +
-          '• Уведомлять об обновлениях\n\n' +
-          'Команды:\n' +
-          '/analyze - запустить анализ вручную\n' +
-          '/status - показать статусы проектов\n\n' +
-          'Просто задавай вопросы!'
-        );
-      } else if (userType === 'client') {
-        ctx.reply(
-          'Здравствуйте! Я — бот для отслеживания статусов проектов.\n\n' +
-          'Вы можете задавать мне вопросы о вашем проекте, и я постараюсь помочь.\n\n' +
-          'Команда /status покажет статусы ваших проектов.'
-        );
-      } else {
-        ctx.reply(
-          'Привет! Я не могу определить ваш статус (продюсер/клиент).\n' +
-          'Пожалуйста, свяжитесь с администратором.'
-        );
-      }
+        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
+        const isAdmin = userId === TEST_TELEGRAM_ID;
+
+        if (userType === 'producer' || isAdmin) {
+          await ctx.reply(
+            'Привет! Я — Статус Ниндзя 🥷\n\n' +
+            'Читаю рабочие чаты проектов и собираю статусы автоматически.\n' +
+            'Статусы приходят по расписанию — или можно посмотреть прямо сейчас.',
+            Markup.inlineKeyboard([
+              [Markup.button.callback('📊 Статусы проектов', 'menu:statuses')],
+              [Markup.button.callback('⚙️ Настройки рассылки', 'menu:settings')],
+            ])
+          );
+        } else if (userType === 'client') {
+          await ctx.reply(
+            'Здравствуйте! Я — бот для отслеживания статусов проектов.\n\n' +
+            'Нажмите кнопку, чтобы посмотреть статус.',
+            Markup.inlineKeyboard([
+              [Markup.button.callback('📊 Статус проекта', 'menu:statuses')],
+            ])
+          );
+        } else {
+          await ctx.reply(
+            'Привет! Я не могу определить ваш статус (продюсер/клиент).\n' +
+            'Пожалуйста, свяжитесь с администратором.'
+          );
+        }
       } catch (error) {
         logger.error('Error in /start handler:', error);
         ctx.reply('Произошла ошибка. Попробуйте позже.');
@@ -1513,6 +1516,343 @@ export class SmartBot {
       }
     });
 
+    // === CALLBACK: Навигация по кнопкам ===
+
+    // Главное меню → Статусы: показать список проектов
+    this.bot.action('menu:statuses', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const userId = ctx.from!.id.toString();
+        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
+        const isAdmin = userId === TEST_TELEGRAM_ID;
+
+        let projects;
+        if (isAdmin) {
+          projects = await SupabaseClient.getAllProjects();
+        } else {
+          projects = await this.getUserProjects(userId);
+        }
+
+        if (!projects || projects.length === 0) {
+          await ctx.editMessageText('Нет активных проектов.', Markup.inlineKeyboard([
+            [Markup.button.callback('◀️ Назад', 'menu:main')]
+          ]));
+          return;
+        }
+
+        // Кнопки проектов (по 1 в строке)
+        const buttons = projects.map((p: any) =>
+          [Markup.button.callback(`📋 ${this.truncate(p.project_name, 45)}`, `status:${p.project_id}`)]
+        );
+        buttons.push([Markup.button.callback('◀️ Назад', 'menu:main')]);
+
+        await ctx.editMessageText(
+          `📊 Выберите проект (${projects.length}):`,
+          Markup.inlineKeyboard(buttons)
+        );
+      } catch (error) {
+        logger.error('Error in menu:statuses callback:', error);
+      }
+    });
+
+    // Главное меню → Настройки: показать список проектов для настроек
+    this.bot.action('menu:settings', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const userId = ctx.from!.id.toString();
+        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
+        const isAdmin = userId === TEST_TELEGRAM_ID;
+
+        let projects;
+        if (isAdmin) {
+          projects = await SupabaseClient.getAllProjects();
+        } else {
+          projects = await this.getUserProjects(userId);
+        }
+
+        if (!projects || projects.length === 0) {
+          await ctx.editMessageText('Нет активных проектов.', Markup.inlineKeyboard([
+            [Markup.button.callback('◀️ Назад', 'menu:main')]
+          ]));
+          return;
+        }
+
+        const buttons = projects.map((p: any) =>
+          [Markup.button.callback(`⚙️ ${this.truncate(p.project_name, 45)}`, `settings:${p.project_id}`)]
+        );
+        buttons.push([Markup.button.callback('◀️ Назад', 'menu:main')]);
+
+        await ctx.editMessageText(
+          '⚙️ Выберите проект для настройки:',
+          Markup.inlineKeyboard(buttons)
+        );
+      } catch (error) {
+        logger.error('Error in menu:settings callback:', error);
+      }
+    });
+
+    // Назад в главное меню
+    this.bot.action('menu:main', async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        await ctx.editMessageText(
+          '🥷 Статус Ниндзя\n\nЧитаю рабочие чаты проектов и собираю статусы автоматически.',
+          Markup.inlineKeyboard([
+            [Markup.button.callback('📊 Статусы проектов', 'menu:statuses')],
+            [Markup.button.callback('⚙️ Настройки рассылки', 'menu:settings')],
+          ])
+        );
+      } catch (error) {
+        logger.error('Error in menu:main callback:', error);
+      }
+    });
+
+    // Показать статус конкретного проекта
+    this.bot.action(/^status:(\d+)$/, async (ctx) => {
+      try {
+        await ctx.answerCbQuery('Загружаю статус...');
+        const projectId = parseInt((ctx.match as RegExpMatchArray)[1], 10);
+
+        const project = await SupabaseClient.getProject(projectId);
+        if (!project) {
+          await ctx.editMessageText('❌ Проект не найден');
+          return;
+        }
+
+        const clientSettings = await SupabaseClient.getClientSettings(projectId);
+        const defaults = getDefaultClientSettings();
+        const format = clientSettings.format_status || defaults.format_status;
+        logger.info(`[status button] project=${projectId} format_status="${clientSettings.format_status}" default="${defaults.format_status}" resolved="${format}" raw_settings=${JSON.stringify(clientSettings)}`);
+
+        const activeBlocks = await DashboardClient.getActiveBlocks(project.project_name);
+
+        if (activeBlocks.length === 0) {
+          await ctx.editMessageText(
+            `📋 ${project.project_name}\n\n⚠️ Нет активных блоков`,
+            Markup.inlineKeyboard([[Markup.button.callback('◀️ К проектам', 'menu:statuses')]])
+          );
+          return;
+        }
+
+        const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
+        const allStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
+
+        const statusMap: Record<string, string> = {};
+        for (const block of activeBlocks) {
+          const blockKey = block.id || block.name;
+          const manual = manualStatuses.get(blockKey);
+          if (manual && manual.status !== 'Не определён') {
+            statusMap[blockKey] = manual.status;
+            continue;
+          }
+          const status = allStatuses.find((s: any) => s.block_id === blockKey);
+          if (status?.status_analysis) {
+            statusMap[blockKey] = status.status_analysis;
+          }
+        }
+
+        let statusText = formatStatusForClient(activeBlocks, statusMap, format);
+
+        // Резолвим [#id] теги в ссылки на сообщения
+        const messages = await SupabaseClient.getLastMessagesForProject(projectId, 200);
+        const linkMap = SupabaseClient.buildMessageLinkMap(messages);
+        statusText = resolveMessageLinksHtml(statusText, linkMap);
+
+        const formatLabel = format === 'короткий' ? '📝 Короткий формат' : '📝 Длинный формат';
+        const fullMessage = `📋 ${project.project_name}\n${formatLabel}\n\n${statusText}`;
+
+        const buttons = Markup.inlineKeyboard([
+          [Markup.button.callback('⚙️ Настройки', `settings:${projectId}`)],
+          [Markup.button.callback('◀️ К проектам', 'menu:statuses')],
+        ]);
+
+        if (fullMessage.length <= 4000) {
+          await ctx.editMessageText(fullMessage, { ...buttons, parse_mode: 'HTML' });
+        } else {
+          await ctx.editMessageText('📋 ' + project.project_name, buttons);
+          const parts = this.splitMessage(statusText, 4000);
+          for (const part of parts) {
+            await ctx.reply(part, { parse_mode: 'HTML' });
+          }
+        }
+      } catch (error) {
+        logger.error('Error in status callback:', error);
+      }
+    });
+
+    // Показать настройки конкретного проекта
+    this.bot.action(/^settings:(\d+)$/, async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const projectId = parseInt((ctx.match as RegExpMatchArray)[1], 10);
+
+        const project = await SupabaseClient.getProject(projectId);
+        if (!project) {
+          await ctx.editMessageText('❌ Проект не найден');
+          return;
+        }
+
+        const settings = await SupabaseClient.getClientSettings(projectId);
+        const defaults = getDefaultClientSettings();
+
+        let msg = `⚙️ ${project.project_name}\n\n`;
+        msg += `📅 Дни: ${settings.status_frequency_day || defaults.status_frequency_day}\n`;
+        msg += `⏰ Время: ${settings.status_frequency_time || defaults.status_frequency_time}\n`;
+        msg += `📝 Формат: ${settings.format_status || defaults.format_status}\n`;
+
+        if (settings.quiet_from || settings.quiet_to) {
+          msg += `🔇 Тихие часы: ${settings.quiet_from || '?'} — ${settings.quiet_to || '?'}\n`;
+        }
+
+        if (settings.weekend) {
+          const wl = settings.weekend === 'no' ? 'не отправлять' : settings.weekend === 'urgent' ? 'только срочное' : settings.weekend;
+          msg += `📅 Выходные: ${wl}\n`;
+        }
+
+        msg += `👤 Клиенту: ${settings.send_to_client ? 'да' : 'нет'}\n`;
+
+        const currentFormat = settings.format_status || defaults.format_status;
+        const formatLabel = currentFormat === 'короткий' ? 'Сменить на длинный' : 'Сменить на короткий';
+        const formatValue = currentFormat === 'короткий' ? 'длинный' : 'короткий';
+
+        const currentClient = settings.send_to_client ? 'Выключить' : 'Включить';
+        const clientValue = settings.send_to_client ? 'false' : 'true';
+
+        await ctx.editMessageText(msg, Markup.inlineKeyboard([
+          [Markup.button.callback(`📝 ${formatLabel}`, `set:${projectId}:format_status:${formatValue}`)],
+          [Markup.button.callback(`👤 Клиенту: ${currentClient}`, `set:${projectId}:send_to_client:${clientValue}`)],
+          [Markup.button.callback('📊 Статус проекта', `status:${projectId}`)],
+          [Markup.button.callback('◀️ К проектам', 'menu:settings')],
+        ]));
+      } catch (error) {
+        logger.error('Error in settings callback:', error);
+      }
+    });
+
+    // Изменить конкретную настройку
+    this.bot.action(/^set:(\d+):(\w+):(.+)$/, async (ctx) => {
+      try {
+        const match = ctx.match as RegExpMatchArray;
+        const projectId = parseInt(match[1], 10);
+        const field = match[2];
+        const value = match[3];
+
+        let dbValue: any = value;
+        if (field === 'send_to_client') {
+          dbValue = value === 'true';
+        }
+
+        await SupabaseClient.upsertClientSettings(projectId, field, dbValue);
+        logger.info(`[set button] wrote project=${projectId} field=${field} value=${JSON.stringify(dbValue)}`);
+        await ctx.answerCbQuery('✅ Сохранено');
+
+        const project = await SupabaseClient.getProject(projectId);
+        const settings = await SupabaseClient.getClientSettings(projectId);
+        logger.info(`[set button] read-back project=${projectId} format_status="${settings.format_status}" raw=${JSON.stringify(settings)}`);
+        const defaults = getDefaultClientSettings();
+
+        // Если сменили формат — сразу показать статус в новом формате
+        if (field === 'format_status') {
+          const newFormat = settings.format_status || defaults.format_status;
+
+          const activeBlocks = await DashboardClient.getActiveBlocks(project.project_name);
+          if (activeBlocks.length === 0) {
+            await ctx.editMessageText(`📋 ${project.project_name}\n📝 Формат: ${newFormat}\n\n⚠️ Нет активных блоков`, Markup.inlineKeyboard([
+              [Markup.button.callback('⚙️ Настройки', `settings:${projectId}`)],
+              [Markup.button.callback('◀️ К проектам', 'menu:statuses')],
+            ]));
+            return;
+          }
+
+          const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
+          const allStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
+          const statusMap: Record<string, string> = {};
+          for (const block of activeBlocks) {
+            const blockKey = block.id || block.name;
+            const manual = manualStatuses.get(blockKey);
+            if (manual && manual.status !== 'Не определён') {
+              statusMap[blockKey] = manual.status;
+              continue;
+            }
+            const status = allStatuses.find((s: any) => s.block_id === blockKey);
+            if (status?.status_analysis) {
+              statusMap[blockKey] = status.status_analysis;
+            }
+          }
+
+          let statusText = formatStatusForClient(activeBlocks, statusMap, newFormat);
+
+          // Резолвим [#id] в ссылки
+          const msgs = await SupabaseClient.getLastMessagesForProject(projectId, 200);
+          const linkMap = SupabaseClient.buildMessageLinkMap(msgs);
+          statusText = resolveMessageLinksHtml(statusText, linkMap);
+
+          const formatLabel2 = newFormat === 'короткий' ? '📝 Короткий формат' : '📝 Длинный формат';
+          const fullMessage = `📋 ${project.project_name}\n${formatLabel2} (изменён ✅)\n\n${statusText}`;
+
+          const buttons = Markup.inlineKeyboard([
+            [Markup.button.callback('⚙️ Настройки', `settings:${projectId}`)],
+            [Markup.button.callback('◀️ К проектам', 'menu:statuses')],
+          ]);
+
+          if (fullMessage.length <= 4000) {
+            await ctx.editMessageText(fullMessage, { ...buttons, parse_mode: 'HTML' });
+          } else {
+            await ctx.editMessageText(`📋 ${project.project_name}\n${formatLabel2} (изменён ✅)`, buttons);
+            const parts = this.splitMessage(statusText, 4000);
+            for (const part of parts) {
+              await ctx.reply(part, { parse_mode: 'HTML' });
+            }
+          }
+          return;
+        }
+
+        // Для остальных настроек — показать панель настроек
+        let msg = `⚙️ ${project.project_name}\n\n`;
+        msg += `📅 Дни: ${settings.status_frequency_day || defaults.status_frequency_day}\n`;
+        msg += `⏰ Время: ${settings.status_frequency_time || defaults.status_frequency_time}\n`;
+        msg += `📝 Формат: ${settings.format_status || defaults.format_status}\n`;
+
+        if (settings.quiet_from || settings.quiet_to) {
+          msg += `🔇 Тихие часы: ${settings.quiet_from || '?'} — ${settings.quiet_to || '?'}\n`;
+        }
+
+        if (settings.weekend) {
+          const wl = settings.weekend === 'no' ? 'не отправлять' : settings.weekend === 'urgent' ? 'только срочное' : settings.weekend;
+          msg += `📅 Выходные: ${wl}\n`;
+        }
+
+        msg += `👤 Клиенту: ${settings.send_to_client ? 'да' : 'нет'}\n`;
+
+        const currentFormat = settings.format_status || defaults.format_status;
+        const formatLabel = currentFormat === 'короткий' ? 'Сменить на длинный' : 'Сменить на короткий';
+        const formatValue2 = currentFormat === 'короткий' ? 'длинный' : 'короткий';
+
+        const currentClient = settings.send_to_client ? 'Выключить' : 'Включить';
+        const clientValue2 = settings.send_to_client ? 'false' : 'true';
+
+        await ctx.editMessageText(msg, Markup.inlineKeyboard([
+          [Markup.button.callback(`📝 ${formatLabel}`, `set:${projectId}:format_status:${formatValue2}`)],
+          [Markup.button.callback(`👤 Клиенту: ${currentClient}`, `set:${projectId}:send_to_client:${clientValue2}`)],
+          [Markup.button.callback('📊 Статус проекта', `status:${projectId}`)],
+          [Markup.button.callback('◀️ К проектам', 'menu:settings')],
+        ]));
+      } catch (error) {
+        logger.error('Error in set callback:', error);
+        await ctx.answerCbQuery('❌ Ошибка');
+      }
+    });
+
+    // Кнопка "Ок, всё норм" — просто убрать кнопки
+    this.bot.action('dismiss', async (ctx) => {
+      try {
+        await ctx.answerCbQuery('👍');
+        await ctx.editMessageReplyMarkup(undefined);
+      } catch (error) {
+        logger.error('Error in dismiss callback:', error);
+      }
+    });
+
     // === CALLBACK: одобрение отправки статуса клиенту ===
     this.bot.action(/^send_to_client:(.+)$/, async (ctx) => {
       try {
@@ -1574,6 +1914,41 @@ export class SmartBot {
 
         await ctx.reply(welcomeText, { parse_mode: 'Markdown' });
         logger.info(`Bot added to/new members in chat ${ctx.chat.id}, sent welcome message`);
+
+        // Уведомить продюсера в личку о подключении
+        try {
+          const chatId = ctx.chat.id.toString();
+          const chat = await SupabaseClient.getChatByTelegramId(chatId);
+
+          if (chat?.project_id) {
+            const project = await SupabaseClient.getProject(chat.project_id);
+
+            if (project?.producer?.producer_tg_chat_id) {
+              const producerTgId = project.producer.producer_tg_chat_id.toString();
+              const defaults = getDefaultClientSettings();
+              const settings = await SupabaseClient.getClientSettings(project.project_id);
+
+              const days = settings.status_frequency_day || defaults.status_frequency_day;
+              const time = settings.status_frequency_time || defaults.status_frequency_time;
+
+              await this.bot.telegram.sendMessage(
+                producerTgId,
+                `🥷 Я подключён к проекту "${project.project_name}"\n\n` +
+                `Буду читать переписку и отправлять тебе статус по расписанию:\n` +
+                `📅 ${days}\n⏰ ${time}\n\n` +
+                `Хочешь изменить?`,
+                Markup.inlineKeyboard([
+                  [Markup.button.callback('⚙️ Изменить расписание', `settings:${project.project_id}`)],
+                  [Markup.button.callback('✅ Ок, всё норм', 'dismiss')],
+                ])
+              );
+
+              logger.info(`Sent onboarding DM to producer ${producerTgId} for project ${project.project_name}`);
+            }
+          }
+        } catch (dmError) {
+          logger.warn('Failed to send onboarding DM to producer (non-critical):', dmError);
+        }
       } catch (error) {
         logger.error('Error in new_chat_members handler:', error);
       }

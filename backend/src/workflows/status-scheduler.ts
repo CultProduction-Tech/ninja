@@ -188,6 +188,11 @@ async function sendStatusToProducer(project: any) {
       return;
     }
 
+    // Резолвим [#id] теги в ссылки на сообщения
+    const allMessages = await SupabaseClient.getLastMessagesForProject(project.project_id, 200);
+    const linkMap = SupabaseClient.buildMessageLinkMap(allMessages);
+    updateText = resolveMessageLinks(updateText, linkMap);
+
     let recipientTgId: string;
     let recipientInfo: string;
 
@@ -225,7 +230,7 @@ async function sendStatusToProducer(project: any) {
       const clientText = formatStatusForClient(activeBlocks, statusMap, 'короткий', weekendPolicy.urgentOnly);
 
       if (clientText && clientText.trim() !== '') {
-        clientStatusText = clientText;
+        clientStatusText = resolveMessageLinks(clientText, linkMap);
 
         if (TEST_MODE) {
           clientTgId = TEST_TELEGRAM_ID;
@@ -362,86 +367,121 @@ export function formatStatusForClient(
 
   const sections: string[] = [];
 
+  // Маркер по категории
+  const marker = (cat: string) => {
+    switch (cat) {
+      case 'approved': return '💚';
+      case 'important': return '❤️';
+      case 'dates': return '💛';
+      case 'in_progress': return '💛';
+      default: return '📍';
+    }
+  };
+
   if (format === 'короткий') {
-    const important = statuses.filter(s => s.category === 'important');
-    const approved = statuses.filter(s => s.category === 'approved');
-    const dates = statuses.filter(s => s.category === 'dates');
-    const inProgress = statuses.filter(s => s.category === 'in_progress');
-    const noInfo = statuses.filter(s => s.category === 'no_info');
+    // Короткий: нумерованный список, одна строка на блок
+    // Пример: 1. 💛Монтаж — Ждём ОС
+    //         2. 💚Музыка — Согласована
+    let num = 1;
+    const lines: string[] = [];
+    const approvedNames: string[] = [];
 
-    if (important.length > 0) {
-      sections.push('❓ Важно:\n' + important.map(s => `${s.status}`).join('\n\n'));
+    for (const s of statuses) {
+      if (s.category === 'no_info') continue;
+      if (s.category === 'approved') {
+        approvedNames.push(s.name);
+        continue;
+      }
+      // Берём первую строку статуса как краткое описание
+      const brief = s.status.split('\n')[0].trim();
+      lines.push(`${num}. ${marker(s.category)}${s.name}\n${brief}`);
+      num++;
     }
 
-    if (inProgress.length > 0) {
-      sections.push(inProgress.map(s => `📍 ${s.name}\n${s.status}`).join('\n\n'));
+    if (approvedNames.length > 0) {
+      lines.push(`${num}. 💚Согласовано\n${approvedNames.join(', ')}`);
     }
 
-    if (dates.length > 0) {
-      sections.push(dates.map(s => `📍 ${s.name}\n${s.status}`).join('\n\n'));
-    }
-
-    if (approved.length > 0) {
-      sections.push('✅ Согласовано:\n' + approved.map(s => `- ${s.name}`).join('\n'));
-    }
-
-    if (noInfo.length > 0) {
-      sections.push('📋 Нет информации:\n' + noInfo.map(s => `- ${s.name}`).join('\n'));
-    }
+    sections.push(lines.join('\n\n'));
 
   } else {
-    // Длинный формат — группировка по этапам
+    // Длинный: нумерованный список с полным текстом, группировка по фазам
+    // Пример: 1. 📍Документы
+    //         Запустили процесс... Отправили договор...
+    const formatPhase = (phaseStatuses: StatusItem[]): string => {
+      let num = 1;
+      const lines: string[] = [];
+      const importantQuestions: string[] = [];
+
+      for (const s of phaseStatuses) {
+        if (s.category === 'no_info') continue;
+
+        lines.push(`${num}. ${marker(s.category)}${s.name}\n${s.status}`);
+        num++;
+
+        // Собираем важные вопросы отдельно
+        if (s.category === 'important') {
+          importantQuestions.push(s.status);
+        }
+      }
+
+      return lines.join('\n\n');
+    };
+
     const preStatuses = statuses.filter(s => s.phase === 'pre');
     const postStatuses = statuses.filter(s => s.phase === 'post');
 
-    const formatPhase = (phaseStatuses: StatusItem[]): string[] => {
-      const phaseSections: string[] = [];
-
-      const important = phaseStatuses.filter(s => s.category === 'important');
-      const inProgress = phaseStatuses.filter(s => s.category === 'in_progress');
-      const approved = phaseStatuses.filter(s => s.category === 'approved');
-      const dates = phaseStatuses.filter(s => s.category === 'dates');
-      const noInfo = phaseStatuses.filter(s => s.category === 'no_info');
-
-      if (important.length > 0) {
-        phaseSections.push('❓ Важные вопросы:\n' + important.map(s => `${s.status}`).join('\n\n'));
-      }
-
-      if (inProgress.length > 0) {
-        phaseSections.push(inProgress.map(s => `📍 ${s.name}\n${s.status}`).join('\n\n'));
-      }
-
-      if (dates.length > 0) {
-        phaseSections.push(dates.map(s => `📍 ${s.name}\n${s.status}`).join('\n\n'));
-      }
-
-      if (approved.length > 0) {
-        phaseSections.push('✅ Согласовано:\n' + approved.map(s => `- ${s.name}`).join('\n'));
-      }
-
-      if (noInfo.length > 0) {
-        phaseSections.push('📋 Нет информации:\n' + noInfo.map(s => `- ${s.name}`).join('\n'));
-      }
-
-      return phaseSections;
-    };
-
-    if (preStatuses.length > 0) {
-      const preSections = formatPhase(preStatuses);
-      if (preSections.length > 0) {
-        sections.push('🎬 Пре-продакшн:\n\n' + preSections.join('\n\n'));
-      }
+    if (preStatuses.length > 0 && postStatuses.length > 0) {
+      // Есть обе фазы — добавляем заголовки
+      const preText = formatPhase(preStatuses);
+      if (preText) sections.push('🎬 Пре-продакшн:\n\n' + preText);
+      const postText = formatPhase(postStatuses);
+      if (postText) sections.push('🎞️ Пост-продакшн:\n\n' + postText);
+    } else {
+      // Одна фаза — без заголовков
+      const allText = formatPhase(statuses);
+      if (allText) sections.push(allText);
     }
 
-    if (postStatuses.length > 0) {
-      const postSections = formatPhase(postStatuses);
-      if (postSections.length > 0) {
-        sections.push('🎞️ Пост-продакшн:\n\n' + postSections.join('\n\n'));
-      }
+    // Важные вопросы/ожидания — в конце отдельным блоком
+    const important = statuses.filter(s => s.category === 'important');
+    if (important.length > 0) {
+      sections.push('‼️ Ждём от клиента:\n' + important.map(s => `- ${s.name}: ${s.status.split('\n')[0]}`).join('\n'));
     }
   }
 
   return sections.join('\n\n');
+}
+
+/**
+ * Заменяет теги [#id] в тексте статуса на кликабельные ссылки на сообщения в Telegram.
+ * linkMap: Map<message_id, telegram_deep_link>
+ * Если ссылка не найдена (нет telegram_message_id), тег просто удаляется.
+ */
+export function resolveMessageLinks(text: string, linkMap: Map<number, string>): string {
+  return text.replace(/\[#(\d+)\]/g, (match, idStr) => {
+    const id = parseInt(idStr, 10);
+    const link = linkMap.get(id);
+    if (link) {
+      return `(📎)`;
+    }
+    // Нет ссылки — убираем тег
+    return '';
+  });
+}
+
+/**
+ * Версия для HTML parse_mode: теги → кликабельные ссылки.
+ */
+export function resolveMessageLinksHtml(text: string, linkMap: Map<number, string>): string {
+  return text.replace(/\[#(\d+)\]/g, (match, idStr) => {
+    const id = parseInt(idStr, 10);
+    const link = linkMap.get(id);
+    if (link) {
+      return `<a href="${link}">📎</a>`;
+    }
+    return '';
+  });
 }
 
 

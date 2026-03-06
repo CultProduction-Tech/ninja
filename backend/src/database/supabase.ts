@@ -20,6 +20,7 @@ export class SupabaseClient {
     message_text: string;
     chat_name_tg: string;
     is_analyzed: boolean;
+    telegram_message_id?: number;
   }) {
     const { data: result, error } = await supabase
       .from('messages')
@@ -361,10 +362,22 @@ export class SupabaseClient {
 
     for (const msg of messages) {
       const role = await this.getUserRole(msg.sender_id);
-      formattedLines.push(`[${role}]: ${msg.message_text}`);
+      const msgTag = msg.message_id ? `[#${msg.message_id}]` : '';
+      formattedLines.push(`${msgTag}[${role}]: ${msg.message_text}`);
     }
 
     return formattedLines.join('\n\n');
+  }
+
+  static buildMessageLinkMap(messages: any[]): Map<number, string> {
+    const linkMap = new Map<number, string>();
+    for (const msg of messages) {
+      if (!msg.message_id || !msg.telegram_chat_id || !msg.telegram_message_id) continue;
+      const chatId = msg.telegram_chat_id.toString().replace(/^-100/, '');
+      const link = `https://t.me/c/${chatId}/${msg.telegram_message_id}`;
+      linkMap.set(msg.message_id, link);
+    }
+    return linkMap;
   }
 
   static async getSystemSettings() {
@@ -445,7 +458,8 @@ export class SupabaseClient {
   }
 
   static async upsertClientSettings(projectId: number, field: string, value: any) {
-    // Проверяем, есть ли уже запись
+    logger.info(`upsertClientSettings: project=${projectId} field=${field} value=${JSON.stringify(value)}`);
+
     const { data: existing } = await supabase
       .from('client_settings')
       .select('project_id')
@@ -457,13 +471,20 @@ export class SupabaseClient {
         .from('client_settings')
         .update({ [field]: value })
         .eq('project_id', projectId);
-      if (error) throw error;
+      if (error) {
+        logger.error(`upsertClientSettings update failed: ${error.message}`, error);
+        throw error;
+      }
     } else {
       const { error } = await supabase
         .from('client_settings')
         .insert({ project_id: projectId, [field]: value });
-      if (error) throw error;
+      if (error) {
+        logger.error(`upsertClientSettings insert failed: ${error.message}`, error);
+        throw error;
+      }
     }
+    logger.info(`upsertClientSettings: success for project=${projectId} field=${field}`);
   }
 
   static async getAllProjects() {

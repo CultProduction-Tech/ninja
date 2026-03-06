@@ -18,7 +18,8 @@ export function setupMessageCollector(bot: Telegraf) {
         sender_id: senderId,
         message_text: messageText,
         chat_name_tg: chatName || '',
-        is_analyzed: false
+        is_analyzed: false,
+        telegram_message_id: message.message_id
       });
 
       logger.info(`Message collected from chat ${chatId}`);
