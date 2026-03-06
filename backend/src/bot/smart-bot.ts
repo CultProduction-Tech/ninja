@@ -1783,7 +1783,8 @@ ${currentStatusContext}
         const status = statusRecord?.status_analysis || noInfo;
 
         msg += `${emoji} ${displayName}\n`;
-        msg += `- ${status}\n\n`;
+        const statusText = status.startsWith('- ') ? status : `- ${status}`;
+        msg += `${statusText}\n\n`;
       }
 
       msg += `Все ли верно? Если какая-то информация неточная, пожалуйста, укажи, что нужно подправить`;
