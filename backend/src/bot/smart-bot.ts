@@ -1,4 +1,4 @@
-import { Telegraf, Context } from 'telegraf';
+import { Telegraf, Context, Markup } from 'telegraf';
 import { logger } from '../utils/logger';
 import { AIServiceClient } from '../services/ai-client';
 import { SupabaseClient, getDefaultClientSettings } from '../database/supabase';
@@ -21,6 +21,7 @@ export class SmartBot {
   private bot: Telegraf;
   private userContext: Map<string, { projectId: number; timestamp: number }> = new Map();
   private conversationHistory: Map<string, ConversationMessage[]> = new Map();
+  private pendingClientStatuses: Map<string, { clientTgId: string; projectName: string; clientText: string }> = new Map();
 
   constructor(token: string) {
     this.bot = new Telegraf(token, {
@@ -47,7 +48,10 @@ export class SmartBot {
         let message = '📖 Доступные команды:\n\n';
 
         message += '🔹 /start - приветствие и описание бота\n';
-        message += '🔹 /status - показать статусы всех проектов\n';
+        message += '🔹 /status - статусы всех проектов\n';
+        message += '🔹 /status <название> - статус конкретного проекта\n';
+        message += '🔹 /settings - настройки рассылки ваших проектов\n';
+        message += '🔹 /settings <название> <поле> <значение> - изменить настройку\n';
         message += '🔹 /analyze - запустить анализ вручную (продюсеры)\n';
         message += '🔹 /help - показать эту справку\n';
 
@@ -57,6 +61,7 @@ export class SmartBot {
           message += '\n👑 АДМИНСКИЕ КОМАНДЫ:\n';
           message += '🔸 /admin_projects - список всех проектов с ID\n';
           message += '🔸 /admin_settings [ID] - настройки клиента для проекта\n';
+          message += '🔸 /admin_settings_set [ID] [поле] [значение] - изменить настройку\n';
           message += '🔸 /admin_blocks [ID] - активные блоки проекта\n';
           message += '🔸 /admin_status [ID] - текущий статус проекта из БД\n';
           message += '🔸 /admin_analyze [ID] - анализ последних 100 сообщений\n';
@@ -67,6 +72,7 @@ export class SmartBot {
           message += '🔸 /admin_glossary_discover [ID] - найти новые термины из переписки\n';
           message += '🔸 /admin_glossary_approve <термин> - одобрить термин\n';
           message += '🔸 /admin_glossary_reject <термин> - отклонить термин\n';
+          message += '🔸 /admin_glossary_edit <термин> | <описание> - изменить описание\n';
           message += '🔸 /admin_glossary_approve_all - одобрить все pending\n';
           message += '\n💡 Без указания ID команды применяются ко всем проектам';
         }
@@ -171,7 +177,8 @@ export class SmartBot {
     this.bot.command('status', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        logger.info(`Smart Bot: /status from user ${userId}`);
+        const searchQuery = ctx.message.text.split(' ').slice(1).join(' ').trim();
+        logger.info(`Smart Bot: /status ${searchQuery ? `"${searchQuery}"` : '(all)'} from user ${userId}`);
 
         const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
         const isAdmin = userId === TEST_TELEGRAM_ID;
@@ -179,7 +186,6 @@ export class SmartBot {
         let projects;
 
         if (isAdmin) {
-          logger.info(`Admin request: showing all projects`);
           projects = await SupabaseClient.getAllProjects();
         } else {
           projects = await this.getUserProjects(userId);
@@ -190,26 +196,86 @@ export class SmartBot {
           return;
         }
 
-        const header = isAdmin
-          ? `👑 Найдено проектов: ${projects.length}\nОтправляю статусы...`
-          : `📊 Найдено проектов: ${projects.length}\nОтправляю статусы...`;
+        // Фильтр по имени проекта (если указано)
+        if (searchQuery) {
+          const query = searchQuery.toLowerCase();
+          const filtered = projects.filter((p: any) =>
+            p.project_name?.toLowerCase().includes(query)
+          );
 
-        await ctx.reply(header);
+          if (filtered.length === 0) {
+            let msg = `❌ Проект "${searchQuery}" не найден.\n\nВаши проекты:\n`;
+            for (const p of projects) {
+              msg += `• ${p.project_name}\n`;
+            }
+            msg += `\nИспользуйте: /status название проекта`;
+            ctx.reply(msg);
+            return;
+          }
+
+          projects = filtered;
+        }
+
+        if (projects.length > 1) {
+          const header = isAdmin
+            ? `👑 Найдено проектов: ${projects.length}\nОтправляю статусы...`
+            : `📊 Найдено проектов: ${projects.length}\nОтправляю статусы...`;
+          await ctx.reply(header);
+        }
 
         for (let i = 0; i < projects.length; i++) {
           const project = projects[i];
-          const statusMessage = await this.formatProjectStatusDynamic(project);
 
-          if (statusMessage.length <= 4000) {
-            await ctx.reply(statusMessage);
-          } else {
-            const parts = this.splitMessage(statusMessage, 4000);
-            for (let j = 0; j < parts.length; j++) {
-              await ctx.reply(parts[j]);
-              if (j < parts.length - 1) {
-                await new Promise(resolve => setTimeout(resolve, 300));
+          try {
+            const clientSettings = await SupabaseClient.getClientSettings(project.project_id);
+            const defaults = getDefaultClientSettings();
+            const format = clientSettings.format_status || defaults.format_status;
+
+            const activeBlocks = await DashboardClient.getActiveBlocks(project.project_name);
+
+            if (activeBlocks.length === 0) {
+              await ctx.reply(`📋 ${project.project_name}\n\n⚠️ Нет активных блоков для этого проекта`);
+              continue;
+            }
+
+            // Ручные статусы из дашборда (приоритет)
+            const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
+
+            // AI-статусы
+            const allStatuses = await SupabaseClient.getCustomBlockStatuses(project.project_id);
+
+            // Собираем карту: ручные > AI
+            const statusMap: Record<string, string> = {};
+            for (const block of activeBlocks) {
+              const blockKey = block.id || block.name;
+              const manual = manualStatuses.get(blockKey);
+              if (manual && manual.status !== 'Не определён') {
+                statusMap[blockKey] = manual.status;
+                continue;
+              }
+              const status = allStatuses.find((s: any) => s.block_id === blockKey);
+              if (status?.status_analysis) {
+                statusMap[blockKey] = status.status_analysis;
               }
             }
+
+            const statusText = formatStatusForClient(activeBlocks, statusMap, format);
+            const statusMessage = `📋 ${project.project_name}\n\n${statusText}`;
+
+            if (statusMessage.length <= 4000) {
+              await ctx.reply(statusMessage);
+            } else {
+              const parts = this.splitMessage(statusMessage, 4000);
+              for (let j = 0; j < parts.length; j++) {
+                await ctx.reply(parts[j]);
+                if (j < parts.length - 1) {
+                  await new Promise(resolve => setTimeout(resolve, 300));
+                }
+              }
+            }
+          } catch (projError) {
+            logger.error(`Error formatting status for ${project.project_name}:`, projError);
+            await ctx.reply(`📋 ${project.project_name}\n\n❌ Ошибка при получении статуса`);
           }
 
           if (i < projects.length - 1) {
@@ -222,6 +288,197 @@ export class SmartBot {
         const errorMsg = error instanceof Error ? error.message : String(error);
         logger.error('Error details:', errorMsg);
         ctx.reply(`Произошла ошибка при получении статусов:\n${errorMsg}`);
+      }
+    });
+
+    // === /settings — для продюсеров: просмотр и изменение настроек ===
+    this.bot.command('settings', async (ctx) => {
+      try {
+        const userId = ctx.from.id.toString();
+        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
+        const isAdmin = userId === TEST_TELEGRAM_ID;
+        logger.info(`/settings from user ${userId}`);
+
+        let projects;
+        if (isAdmin) {
+          projects = await SupabaseClient.getAllProjects();
+        } else {
+          projects = await this.getUserProjects(userId);
+        }
+
+        if (!projects || projects.length === 0) {
+          ctx.reply('Нет активных проектов.');
+          return;
+        }
+
+        const args = ctx.message.text.split(' ').slice(1);
+
+        // Без аргументов — показать настройки всех проектов
+        if (args.length === 0) {
+          let msg = '⚙️ Настройки ваших проектов:\n';
+
+          for (const project of projects) {
+            const settings = await SupabaseClient.getClientSettings(project.project_id);
+            const defaults = getDefaultClientSettings();
+
+            msg += `\n📋 ${project.project_name}\n`;
+            msg += `  📅 Дни: ${settings.status_frequency_day || defaults.status_frequency_day}\n`;
+            msg += `  ⏰ Время: ${settings.status_frequency_time || defaults.status_frequency_time}\n`;
+            msg += `  📝 Формат: ${settings.format_status || defaults.format_status}\n`;
+
+            if (settings.quiet_from) {
+              msg += `  🔇 Тихие часы: ${settings.quiet_from} — ${settings.quiet_to || '?'}\n`;
+            }
+
+            if (settings.weekend) {
+              const wl = settings.weekend === 'no' ? 'не отправлять' : settings.weekend === 'urgent' ? 'только срочное' : settings.weekend;
+              msg += `  📅 Выходные: ${wl}\n`;
+            }
+
+            msg += `  👤 Клиенту: ${settings.send_to_client ? 'да' : 'нет'}\n`;
+          }
+
+          msg += '\n💡 Изменить: /settings название_проекта поле значение';
+          msg += '\nПоля: format, days, time, quiet_from, quiet_to, weekend, send_to_client';
+          ctx.reply(msg);
+          return;
+        }
+
+        // С аргументами — найти проект и изменить настройку
+        // Нужно определить, где заканчивается имя проекта и начинается поле
+        const settingsFields = ['format', 'days', 'time', 'quiet_from', 'quiet_to', 'weekend', 'send_to_client'];
+
+        let projectName = '';
+        let fieldIndex = -1;
+
+        for (let i = 0; i < args.length; i++) {
+          if (settingsFields.includes(args[i].toLowerCase())) {
+            fieldIndex = i;
+            break;
+          }
+        }
+
+        if (fieldIndex <= 0) {
+          // Нет поля — просто показать настройки одного проекта
+          const query = args.join(' ').toLowerCase();
+          const project = projects.find((p: any) => p.project_name?.toLowerCase().includes(query));
+
+          if (!project) {
+            let msg = `❌ Проект "${args.join(' ')}" не найден.\n\nВаши проекты:\n`;
+            for (const p of projects) {
+              msg += `• ${p.project_name}\n`;
+            }
+            ctx.reply(msg);
+            return;
+          }
+
+          const settings = await SupabaseClient.getClientSettings(project.project_id);
+          const defaults = getDefaultClientSettings();
+
+          let msg = `⚙️ Настройки проекта "${project.project_name}":\n\n`;
+          msg += `📅 Дни: ${settings.status_frequency_day || defaults.status_frequency_day}\n`;
+          msg += `⏰ Время: ${settings.status_frequency_time || defaults.status_frequency_time}\n`;
+          msg += `📝 Формат: ${settings.format_status || defaults.format_status}\n`;
+
+          if (settings.quiet_from || settings.quiet_to) {
+            msg += `🔇 Тихие часы: ${settings.quiet_from || '?'} — ${settings.quiet_to || '?'}\n`;
+          }
+
+          if (settings.weekend) {
+            const wl = settings.weekend === 'no' ? 'не отправлять' : settings.weekend === 'urgent' ? 'только срочное' : settings.weekend;
+            msg += `📅 Выходные: ${wl}\n`;
+          }
+
+          msg += `👤 Клиенту: ${settings.send_to_client ? 'да' : 'нет'}\n`;
+          msg += `\n💡 Изменить: /settings ${project.project_name} format короткий`;
+          ctx.reply(msg);
+          return;
+        }
+
+        // Есть поле — изменяем настройку
+        projectName = args.slice(0, fieldIndex).join(' ');
+        const field = args[fieldIndex].toLowerCase();
+        const value = args.slice(fieldIndex + 1).join(' ');
+
+        if (!value) {
+          ctx.reply(`⚠️ Укажите значение: /settings ${projectName} ${field} значение`);
+          return;
+        }
+
+        const query = projectName.toLowerCase();
+        const project = projects.find((p: any) => p.project_name?.toLowerCase().includes(query));
+
+        if (!project) {
+          ctx.reply(`❌ Проект "${projectName}" не найден`);
+          return;
+        }
+
+        // Валидация и маппинг (та же логика что в admin_settings_set)
+        const fieldMap: Record<string, { dbField: string; validate: (v: string) => string | null }> = {
+          'format': {
+            dbField: 'format_status',
+            validate: (v) => ['короткий', 'длинный'].includes(v) ? null : 'Значения: короткий, длинный'
+          },
+          'days': {
+            dbField: 'status_frequency_day',
+            validate: (v) => {
+              const valid = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+              const days = v.split(',').map(d => d.trim());
+              const invalid = days.filter(d => !valid.includes(d));
+              return invalid.length ? `Неизвестные дни: ${invalid.join(', ')}` : null;
+            }
+          },
+          'time': {
+            dbField: 'status_frequency_time',
+            validate: (v) => /^\d{1,2}:\d{2}(:\d{2})?(\+\d{2})?$/.test(v) ? null : 'Формат: 10:00:00+03'
+          },
+          'quiet_from': {
+            dbField: 'quiet_from',
+            validate: (v) => v === 'off' || /^\d{1,2}:\d{2}/.test(v) ? null : 'Формат: 22:00:00+03 или off'
+          },
+          'quiet_to': {
+            dbField: 'quiet_to',
+            validate: (v) => v === 'off' || /^\d{1,2}:\d{2}/.test(v) ? null : 'Формат: 08:00:00+03 или off'
+          },
+          'weekend': {
+            dbField: 'weekend',
+            validate: (v) => ['no', 'urgent', 'normal'].includes(v) ? null : 'Значения: no, urgent, normal'
+          },
+          'send_to_client': {
+            dbField: 'send_to_client',
+            validate: (v) => ['on', 'off'].includes(v) ? null : 'Значения: on, off'
+          },
+        };
+
+        const mapping = fieldMap[field];
+        if (!mapping) {
+          ctx.reply(`❌ Неизвестное поле: ${field}\nДоступные: ${Object.keys(fieldMap).join(', ')}`);
+          return;
+        }
+
+        const validationError = mapping.validate(value);
+        if (validationError) {
+          ctx.reply(`⚠️ ${validationError}`);
+          return;
+        }
+
+        let dbValue: any = value;
+        if (field === 'quiet_from' || field === 'quiet_to') {
+          dbValue = value === 'off' ? null : value;
+        } else if (field === 'weekend') {
+          dbValue = value === 'normal' ? null : value;
+        } else if (field === 'send_to_client') {
+          dbValue = value === 'on';
+        }
+
+        await SupabaseClient.upsertClientSettings(project.project_id, mapping.dbField, dbValue);
+
+        const displayValue = dbValue === null ? 'выключено' : dbValue === true ? 'включено' : dbValue === false ? 'выключено' : dbValue;
+        ctx.reply(`✅ Настройка обновлена:\n📋 ${project.project_name}\n⚙️ ${field} → ${displayValue}`);
+
+      } catch (error) {
+        logger.error('Error in /settings:', error);
+        ctx.reply('❌ Ошибка при работе с настройками');
       }
     });
 
@@ -312,18 +569,141 @@ export class SmartBot {
         message += `🆔 Project ID: ${projectId}\n`;
         message += `📅 Дни отправки: ${settings.status_frequency_day || 'По умолчанию (пн-пт)'}\n`;
         message += `⏰ Время отправки: ${settings.status_frequency_time || '10:00:00+03'}\n`;
-        message += `📝 Формат: ${settings.format_status || 'длинный'}\n\n`;
+        message += `📝 Формат: ${settings.format_status || 'длинный'}\n`;
+
+        if (settings.quiet_from || settings.quiet_to) {
+          message += `🔇 Тихие часы: ${settings.quiet_from || '?'} — ${settings.quiet_to || '?'}\n`;
+        }
+
+        if (settings.weekend) {
+          const weekendLabel = settings.weekend === 'no' ? 'не отправлять' : settings.weekend === 'urgent' ? 'только срочное' : settings.weekend;
+          message += `📅 Выходные: ${weekendLabel}\n`;
+        }
+
+        message += `👤 Отправка клиенту: ${settings.send_to_client ? 'включена (короткий формат)' : 'выключена'}\n\n`;
 
         const nextSend = this.calculateNextSendTime(settings);
         message += `⏭️ Следующая отправка: ${nextSend}\n\n`;
 
-        message += `💡 Статус будет отправлен продюсеру за 1 час до времени отправки`;
+        message += `💡 Изменить: /admin_settings_set ${projectId} [поле] [значение]`;
 
         ctx.reply(message);
 
       } catch (error) {
         logger.error('Error in /admin_settings:', error);
         ctx.reply('❌ Ошибка при получении настроек');
+      }
+    });
+
+    this.bot.command('admin_settings_set', async (ctx) => {
+      try {
+        const userId = ctx.from.id.toString();
+        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
+
+        if (userId !== TEST_TELEGRAM_ID) {
+          ctx.reply('⛔ У вас нет доступа к этой команде.');
+          return;
+        }
+
+        const args = ctx.message.text.split(' ');
+        if (args.length < 4) {
+          let help = '⚙️ Изменение настроек проекта:\n\n';
+          help += '/admin_settings_set [ID] [поле] [значение]\n\n';
+          help += 'Доступные поля:\n';
+          help += '• format — формат статуса (короткий / длинный)\n';
+          help += '• days — дни отправки (Mon,Tue,Wed,Thu,Fri)\n';
+          help += '• time — время отправки (10:00:00+03)\n';
+          help += '• quiet_from — начало тихих часов (22:00:00+03)\n';
+          help += '• quiet_to — конец тихих часов (08:00:00+03)\n';
+          help += '• weekend — выходные (no / urgent / normal)\n';
+          help += '• send_to_client — отправка клиенту (on / off)\n';
+          help += '\nПримеры:\n';
+          help += '/admin_settings_set 38 format короткий\n';
+          help += '/admin_settings_set 38 days Mon,Wed,Fri\n';
+          help += '/admin_settings_set 38 weekend urgent\n';
+          help += '/admin_settings_set 38 send_to_client on';
+          ctx.reply(help);
+          return;
+        }
+
+        const projectId = parseInt(args[1], 10);
+        if (isNaN(projectId)) {
+          ctx.reply('⚠️ ID проекта должен быть числом');
+          return;
+        }
+
+        const field = args[2].toLowerCase();
+        const value = args.slice(3).join(' ');
+
+        // Маппинг коротких имен на поля в БД
+        const fieldMap: Record<string, { dbField: string; validate: (v: string) => string | null }> = {
+          'format': {
+            dbField: 'format_status',
+            validate: (v) => ['короткий', 'длинный'].includes(v) ? null : 'Допустимые значения: короткий, длинный'
+          },
+          'days': {
+            dbField: 'status_frequency_day',
+            validate: (v) => {
+              const valid = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+              const days = v.split(',').map(d => d.trim());
+              const invalid = days.filter(d => !valid.includes(d));
+              return invalid.length ? `Неизвестные дни: ${invalid.join(', ')}. Используйте: ${valid.join(', ')}` : null;
+            }
+          },
+          'time': {
+            dbField: 'status_frequency_time',
+            validate: (v) => /^\d{1,2}:\d{2}(:\d{2})?(\+\d{2})?$/.test(v) ? null : 'Формат: HH:MM:SS+TZ (напр. 10:00:00+03)'
+          },
+          'quiet_from': {
+            dbField: 'quiet_from',
+            validate: (v) => v === 'off' || /^\d{1,2}:\d{2}/.test(v) ? null : 'Формат: HH:MM:SS+TZ или off'
+          },
+          'quiet_to': {
+            dbField: 'quiet_to',
+            validate: (v) => v === 'off' || /^\d{1,2}:\d{2}/.test(v) ? null : 'Формат: HH:MM:SS+TZ или off'
+          },
+          'weekend': {
+            dbField: 'weekend',
+            validate: (v) => ['no', 'urgent', 'normal'].includes(v) ? null : 'Допустимые значения: no, urgent, normal'
+          },
+          'send_to_client': {
+            dbField: 'send_to_client',
+            validate: (v) => ['on', 'off'].includes(v) ? null : 'Допустимые значения: on, off'
+          },
+        };
+
+        const mapping = fieldMap[field];
+        if (!mapping) {
+          ctx.reply(`❌ Неизвестное поле: ${field}\nДоступные: ${Object.keys(fieldMap).join(', ')}`);
+          return;
+        }
+
+        const validationError = mapping.validate(value);
+        if (validationError) {
+          ctx.reply(`⚠️ ${validationError}`);
+          return;
+        }
+
+        // Преобразование значений
+        let dbValue: any = value;
+        if (field === 'quiet_from' || field === 'quiet_to') {
+          dbValue = value === 'off' ? null : value;
+        } else if (field === 'weekend') {
+          dbValue = value === 'normal' ? null : value;
+        } else if (field === 'send_to_client') {
+          dbValue = value === 'on';
+        }
+
+        logger.info(`Admin: /admin_settings_set ${projectId} ${field}=${value} from ${userId}`);
+
+        await SupabaseClient.upsertClientSettings(projectId, mapping.dbField, dbValue);
+
+        const displayValue = dbValue === null ? 'выключено' : dbValue === true ? 'включено' : dbValue === false ? 'выключено' : dbValue;
+        ctx.reply(`✅ Настройка обновлена:\n📋 Проект: ${projectId}\n⚙️ ${field} → ${displayValue}`);
+
+      } catch (error) {
+        logger.error('Error in /admin_settings_set:', error);
+        ctx.reply('❌ Ошибка при обновлении настроек');
       }
     });
 
@@ -896,6 +1276,7 @@ export class SmartBot {
             message += `\n• "${term}" — ${definition}\n`;
             message += `  /admin_glossary_approve ${term}\n`;
             message += `  /admin_glossary_reject ${term}\n`;
+            message += `  /admin_glossary_edit ${term} | новое описание\n`;
           }
           message += `\n💡 /admin_glossary_approve_all — одобрить все`;
         } else {
@@ -1087,6 +1468,94 @@ export class SmartBot {
           const errorMsg = error instanceof Error ? error.message : String(error);
           ctx.reply(`❌ Ошибка: ${errorMsg}`);
         }
+      }
+    });
+
+    this.bot.command('admin_glossary_edit', async (ctx) => {
+      try {
+        const userId = ctx.from.id.toString();
+        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
+
+        if (userId !== TEST_TELEGRAM_ID) {
+          ctx.reply('⛔ У вас нет доступа к этой команде.');
+          return;
+        }
+
+        const args = ctx.message.text.split(' ').slice(1).join(' ').trim();
+        const separatorIndex = args.indexOf('|');
+
+        if (!args || separatorIndex === -1) {
+          ctx.reply('⚠️ Формат: /admin_glossary_edit термин | новое описание\nПример: /admin_glossary_edit окнуть | Одобрить, утвердить');
+          return;
+        }
+
+        const term = args.substring(0, separatorIndex).trim();
+        const definition = args.substring(separatorIndex + 1).trim();
+
+        if (!term || !definition) {
+          ctx.reply('⚠️ Укажите и термин, и описание: /admin_glossary_edit термин | новое описание');
+          return;
+        }
+
+        logger.info(`Admin: /admin_glossary_edit "${term}" -> "${definition}" from ${userId}`);
+
+        const result = await AIServiceClient.editGlossaryTerm(term, definition);
+        ctx.reply(`✏️ Термин "${result.term}" обновлён.\nНовое описание: ${result.definition}`);
+
+      } catch (error: any) {
+        logger.error('Error in /admin_glossary_edit:', error);
+        if (error?.response?.status === 404) {
+          ctx.reply('❌ Термин не найден в списке обнаруженных.');
+        } else {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          ctx.reply(`❌ Ошибка: ${errorMsg}`);
+        }
+      }
+    });
+
+    // === CALLBACK: одобрение отправки статуса клиенту ===
+    this.bot.action(/^send_to_client:(.+)$/, async (ctx) => {
+      try {
+        const dataKey = (ctx.match as RegExpMatchArray)[1];
+        const pending = this.pendingClientStatuses.get(dataKey);
+
+        if (!pending) {
+          await ctx.answerCbQuery('⏰ Время действия кнопки истекло');
+          await ctx.editMessageReplyMarkup(undefined);
+          return;
+        }
+
+        this.pendingClientStatuses.delete(dataKey);
+
+        await this.bot.telegram.sendMessage(
+          pending.clientTgId,
+          `Статус на сегодня по проекту "${pending.projectName}":\n\n${pending.clientText}`
+        );
+
+        await ctx.answerCbQuery('✅ Отправлено клиенту');
+        await ctx.editMessageReplyMarkup(undefined);
+        // Добавляем пометку к сообщению
+        const originalText = (ctx.callbackQuery.message as any)?.text || '';
+        await ctx.editMessageText(originalText + '\n\n✅ Статус отправлен клиенту');
+
+        logger.info(`Producer approved client status for ${pending.projectName}, sent to ${pending.clientTgId}`);
+      } catch (error) {
+        logger.error('Error in send_to_client callback:', error);
+        await ctx.answerCbQuery('❌ Ошибка отправки');
+      }
+    });
+
+    this.bot.action(/^skip_client:(.+)$/, async (ctx) => {
+      try {
+        const dataKey = (ctx.match as RegExpMatchArray)[1];
+        this.pendingClientStatuses.delete(dataKey);
+
+        await ctx.answerCbQuery('⏭️ Пропущено');
+        await ctx.editMessageReplyMarkup(undefined);
+
+        logger.info(`Producer skipped client status send`);
+      } catch (error) {
+        logger.error('Error in skip_client callback:', error);
       }
     });
 
@@ -1755,6 +2224,72 @@ ${currentStatusContext}
       logger.info(`Notified producer ${producerTgChatId} about project ${projectName}`);
     } catch (error) {
       logger.error(`Error notifying producer ${producerTgChatId}:`, error);
+    }
+  }
+
+  async notifyProducerWithClientApproval(
+    producerTgChatId: string,
+    projectName: string,
+    updates: string,
+    clientTgId: string | null,
+    clientStatusText: string | null
+  ) {
+    // Если нет клиента — обычная отправка без кнопок
+    if (!clientTgId || !clientStatusText) {
+      return this.notifyProducer(producerTgChatId, projectName, updates);
+    }
+
+    try {
+      const header = `Статус на сегодня по проекту "${projectName}":\n\n`;
+      const fullMessage = header + updates;
+
+      // Генерируем уникальный ключ для callback
+      const dataKey = `${Date.now()}_${projectName.replace(/[^a-zA-Z0-9а-яА-Я]/g, '').slice(0, 20)}`;
+
+      // Сохраняем данные для отправки клиенту
+      this.pendingClientStatuses.set(dataKey, {
+        clientTgId,
+        projectName,
+        clientText: clientStatusText
+      });
+
+      // Автоочистка через 24 часа
+      setTimeout(() => this.pendingClientStatuses.delete(dataKey), 24 * 60 * 60 * 1000);
+
+      const keyboard = Markup.inlineKeyboard([
+        Markup.button.callback('✅ Отправить клиенту', `send_to_client:${dataKey}`),
+        Markup.button.callback('⏭️ Не отправлять', `skip_client:${dataKey}`)
+      ]);
+
+      const MAX_LENGTH = 4000;
+
+      if (fullMessage.length <= MAX_LENGTH) {
+        await this.bot.telegram.sendMessage(producerTgChatId, fullMessage, keyboard);
+      } else {
+        // Для длинных сообщений — отправляем частями, кнопки на последнем
+        const parts = this.splitMessage(updates, MAX_LENGTH - header.length);
+
+        for (let i = 0; i < parts.length; i++) {
+          const partHeader = i === 0
+            ? header
+            : `Статус на сегодня по проекту "${projectName}" (часть ${i + 1}):\n\n`;
+
+          const isLast = i === parts.length - 1;
+          await this.bot.telegram.sendMessage(
+            producerTgChatId,
+            partHeader + parts[i],
+            isLast ? keyboard : undefined
+          );
+
+          if (!isLast) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+      }
+
+      logger.info(`Notified producer ${producerTgChatId} about ${projectName} with client approval button`);
+    } catch (error) {
+      logger.error(`Error notifying producer with client approval ${producerTgChatId}:`, error);
     }
   }
 

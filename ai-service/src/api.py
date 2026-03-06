@@ -163,6 +163,11 @@ class GlossaryTermAction(BaseModel):
     term: str
 
 
+class GlossaryTermEdit(BaseModel):
+    term: str
+    definition: str
+
+
 @app.post("/glossary/discover")
 async def discover_glossary_terms(request: DiscoverGlossaryRequest):
     try:
@@ -218,6 +223,21 @@ async def approve_glossary_term(request: GlossaryTermAction):
         raise
     except Exception as e:
         logger.error(f"Error approving term: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/glossary/edit")
+async def edit_glossary_term(request: GlossaryTermEdit):
+    try:
+        success = glossary_discovered.edit_term(request.term, request.definition)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Term '{request.term}' not found")
+        return {"status": "edited", "term": request.term, "definition": request.definition}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error editing term: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

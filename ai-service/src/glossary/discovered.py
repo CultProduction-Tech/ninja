@@ -116,6 +116,19 @@ def approve_term(term: str) -> bool:
     return True
 
 
+def edit_term(term: str, new_definition: str) -> bool:
+    """Редактирует описание термина. Возвращает True если термин найден."""
+    data = load_discovered()
+    terms = data.get("terms", {})
+    if term not in terms:
+        return False
+    terms[term]["definition"] = new_definition
+    terms[term]["edited_at"] = datetime.now().isoformat()
+    save_discovered(data)
+    logger.info(f"Edited glossary term: {term} -> {new_definition}")
+    return True
+
+
 def reject_term(term: str) -> bool:
     """Отклоняет термин. Возвращает True если термин найден."""
     data = load_discovered()

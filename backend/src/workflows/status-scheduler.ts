@@ -216,10 +216,31 @@ async function sendStatusToProducer(project: any) {
     }
 
     const smartBot = getSmartBot();
-    await smartBot.notifyProducer(
+
+    // Если включена отправка клиенту — добавляем кнопку подтверждения
+    let clientTgId: string | null = null;
+    let clientStatusText: string | null = null;
+
+    if (clientSettings.send_to_client && project.client?.client_chat_id) {
+      const clientText = formatStatusForClient(activeBlocks, statusMap, 'короткий', weekendPolicy.urgentOnly);
+
+      if (clientText && clientText.trim() !== '') {
+        clientStatusText = clientText;
+
+        if (TEST_MODE) {
+          clientTgId = TEST_TELEGRAM_ID;
+        } else {
+          clientTgId = project.client.client_chat_id.toString();
+        }
+      }
+    }
+
+    await smartBot.notifyProducerWithClientApproval(
       recipientTgId,
       project.project_name,
-      updateText
+      updateText,
+      clientTgId,
+      clientStatusText
     );
 
     logger.info(`Sent status update for project ${project.project_name} to ${recipientInfo}`);

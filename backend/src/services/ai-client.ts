@@ -142,6 +142,18 @@ export class AIServiceClient {
     }
   }
 
+  static async editGlossaryTerm(term: string, definition: string): Promise<{ status: string; term: string; definition: string }> {
+    try {
+      const response = await axios.post(`${AI_SERVICE_URL}/glossary/edit`, { term, definition }, {
+        timeout: DEFAULT_TIMEOUT
+      });
+      return response.data;
+    } catch (error) {
+      logger.error('Error calling AI service to edit glossary term:', error);
+      throw error;
+    }
+  }
+
   static async rejectGlossaryTerm(term: string): Promise<{ status: string; term: string }> {
     try {
       const response = await axios.post(`${AI_SERVICE_URL}/glossary/reject`, { term }, {

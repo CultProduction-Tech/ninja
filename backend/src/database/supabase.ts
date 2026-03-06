@@ -444,12 +444,35 @@ export class SupabaseClient {
     return data || getDefaultClientSettings();
   }
 
+  static async upsertClientSettings(projectId: number, field: string, value: any) {
+    // Проверяем, есть ли уже запись
+    const { data: existing } = await supabase
+      .from('client_settings')
+      .select('project_id')
+      .eq('project_id', projectId)
+      .single();
+
+    if (existing) {
+      const { error } = await supabase
+        .from('client_settings')
+        .update({ [field]: value })
+        .eq('project_id', projectId);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase
+        .from('client_settings')
+        .insert({ project_id: projectId, [field]: value });
+      if (error) throw error;
+    }
+  }
+
   static async getAllProjects() {
     const { data, error } = await supabase
       .from('projects')
       .select(`
         *,
-        producer:producer_id (*)
+        producer:producer_id (*),
+        client:client_id (*)
       `);
 
     if (error) {
