@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.google.com)",
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(netstat -ano)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''src/chains/analyzer.py'', encoding=''utf-8''\\).read\\(\\)\\); print\\(''analyzer.py syntax OK''\\)\")",
+      "Bash(npx tsc --noEmit --pretty)",
+      "Bash(pip show fastapi uvicorn langchain-openai)",
+      "Bash(python -c \"from src.glossary.base_glossary import BASE_GLOSSARY; print\\(f''Base glossary: {len\\(BASE_GLOSSARY\\)} terms''\\)\")",
+      "Bash(python -c \"from src.glossary.discovered import load_discovered, get_glossary_stats; stats = get_glossary_stats\\(\\); print\\(f''Stats: {stats}''\\)\")",
+      "Bash(python -m uvicorn src.api:app --host 0.0.0.0 --port 8000)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(curl -s http://localhost:8000/glossary)",
+      "Bash(python -m json.tool)",
+      "Bash(python -c \":*)",
+      "Bash(npx tsc --noEmit)"
+    ]
+  }
+}

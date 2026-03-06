@@ -268,6 +268,15 @@ async function analyzeCustomBlocksOnDemand(project: any, customBlocks: any[]): P
           status_analysis: newStatus
         });
 
+        // Синхронизируем в дашборд (OCTOPUS)
+        try {
+          await DashboardClient.syncStatusToDashboard(
+            project.project_name, block.id!, block.name, block.type, newStatus
+          );
+        } catch (dashError) {
+          logger.warn(`Dashboard sync failed for ${block.name} (non-critical):`, dashError);
+        }
+
         logger.info(`Saved status for custom block: ${block.name}`);
 
         savedStatuses.push({

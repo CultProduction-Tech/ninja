@@ -184,6 +184,15 @@ async function saveAnalysisResults(
         status_analysis: newStatus
       });
 
+      // Синхронизируем в дашборд (OCTOPUS)
+      try {
+        await DashboardClient.syncStatusToDashboard(
+          projectName, block.id || block.name, block.name, block.type, newStatus
+        );
+      } catch (dashError) {
+        logger.warn(`Dashboard sync failed for ${block.name} (non-critical):`, dashError);
+      }
+
       // Стандартные блоки дополнительно пишем в projects/projects_test (dual-write, не критично)
       if (block.type === 'standard') {
         const fieldMapping = getStandardFieldMapping(block.name);
