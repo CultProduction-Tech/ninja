@@ -4,7 +4,7 @@ from typing import Optional
 
 class Settings(BaseSettings):
     openrouter_api_key: str
-    openrouter_model: str = "google/gemini-2.5-flash-lite"
+    openrouter_model: str = "google/gemini-2.5-flash"
     openai_api_key: Optional[str] = None
 
     supabase_url: Optional[str] = None

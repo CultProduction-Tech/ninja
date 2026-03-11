@@ -181,6 +181,12 @@ async function saveAnalysisResults(
 
       if (!newStatus) continue;
 
+      // Пропускаем "информация отсутствует" — не перезаписываем старый статус
+      if (newStatus.toLowerCase().includes('информация отсутствует')) {
+        logger.info(`Block ${block.name}: no new info, keeping existing status`);
+        continue;
+      }
+
       // Все блоки (и стандартные, и кастомные) пишем в custom_block_statuses
       await SupabaseClient.upsertCustomBlockStatus({
         project_id: projectId,

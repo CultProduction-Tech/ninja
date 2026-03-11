@@ -380,6 +380,34 @@ export class SupabaseClient {
     return linkMap;
   }
 
+  static async buildLinkMapByIds(messageIds: number[]): Promise<Map<number, string>> {
+    if (messageIds.length === 0) {
+      logger.info('buildLinkMapByIds: no IDs to resolve');
+      return new Map();
+    }
+
+    logger.info(`buildLinkMapByIds: resolving ${messageIds.length} IDs: ${messageIds.join(', ')}`);
+
+    const { data, error } = await supabase
+      .from('messages')
+      .select('message_id, telegram_chat_id, telegram_message_id')
+      .in('message_id', messageIds);
+
+    if (error) {
+      logger.error('Error fetching messages by IDs:', error);
+      return new Map();
+    }
+
+    logger.info(`buildLinkMapByIds: found ${data?.length || 0} messages in DB`);
+    if (data && data.length > 0) {
+      logger.info(`buildLinkMapByIds: first msg: ${JSON.stringify(data[0])}`);
+    }
+
+    const linkMap = this.buildMessageLinkMap(data || []);
+    logger.info(`buildLinkMapByIds: linkMap has ${linkMap.size} entries`);
+    return linkMap;
+  }
+
   static async getSystemSettings() {
     const { data, error } = await supabase
       .from('system')

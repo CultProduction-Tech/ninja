@@ -474,14 +474,26 @@ export function resolveMessageLinks(text: string, linkMap: Map<number, string>):
  * Версия для HTML parse_mode: теги → кликабельные ссылки.
  */
 export function resolveMessageLinksHtml(text: string, linkMap: Map<number, string>): string {
-  return text.replace(/\[#(\d+)\]/g, (match, idStr) => {
+  // Сначала списки вида [#123, #456, #789]
+  text = text.replace(/\[#(\d+(?:,\s*#?\d+)*)\]/g, (match, inner) => {
+    const ids = inner.split(',').map((s: string) => parseInt(s.replace(/[^0-9]/g, ''), 10));
+    const links = ids
+      .map((id: number) => {
+        const link = linkMap.get(id);
+        return link ? `<a href="${link}">📎</a>` : null;
+      })
+      .filter(Boolean);
+    return links.length > 0 ? links.join(' ') : match;
+  });
+
+  // Затем одиночные [#123]
+  text = text.replace(/\[#(\d+)\]/g, (match, idStr) => {
     const id = parseInt(idStr, 10);
     const link = linkMap.get(id);
-    if (link) {
-      return `<a href="${link}">📎</a>`;
-    }
-    return '';
+    return link ? `<a href="${link}">📎</a>` : match;
   });
+
+  return text;
 }
 
 

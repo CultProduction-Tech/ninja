@@ -262,15 +262,21 @@ export class SmartBot {
               }
             }
 
-            const statusText = formatStatusForClient(activeBlocks, statusMap, format);
+            let statusText = formatStatusForClient(activeBlocks, statusMap, format);
+
+            // Резолвим [#id] теги в кликабельные ссылки на сообщения
+            const refIds = [...statusText.matchAll(/\[#(\d+)/g)].map(m => parseInt(m[1], 10));
+            const linkMap = await SupabaseClient.buildLinkMapByIds(refIds);
+            statusText = resolveMessageLinksHtml(statusText, linkMap);
+
             const statusMessage = `📋 ${project.project_name}\n\n${statusText}`;
 
             if (statusMessage.length <= 4000) {
-              await ctx.reply(statusMessage);
+              await ctx.reply(statusMessage, { parse_mode: 'HTML' });
             } else {
               const parts = this.splitMessage(statusMessage, 4000);
               for (let j = 0; j < parts.length; j++) {
-                await ctx.reply(parts[j]);
+                await ctx.reply(parts[j], { parse_mode: 'HTML' });
                 if (j < parts.length - 1) {
                   await new Promise(resolve => setTimeout(resolve, 300));
                 }
@@ -949,6 +955,12 @@ export class SmartBot {
                 continue;
               }
 
+              // Пропускаем "информация отсутствует" — не перезаписываем старый статус
+              if (newStatus.toLowerCase().includes('информация отсутствует')) {
+                logger.info(`Block ${block.name}: no new info, keeping existing status`);
+                continue;
+              }
+
               // Все блоки пишем в custom_block_statuses
               await SupabaseClient.upsertCustomBlockStatus({
                 project_id: project.project_id,
@@ -1093,6 +1105,12 @@ export class SmartBot {
 
               if (!newStatus) {
                 logger.warn(`No analysis result for block: ${block.name}`);
+                continue;
+              }
+
+              // Пропускаем "информация отсутствует" — не перезаписываем старый статус
+              if (newStatus.toLowerCase().includes('информация отсутствует')) {
+                logger.info(`Block ${block.name}: no new info, keeping existing status`);
                 continue;
               }
 
@@ -1973,7 +1991,8 @@ export class SmartBot {
           sender_id: senderId,
           message_text: messageText,
           chat_name_tg: chatName || '',
-          is_analyzed: false
+          is_analyzed: false,
+          telegram_message_id: message.message_id
         });
 
         logger.info(`Message collected from chat ${chatId}`);
