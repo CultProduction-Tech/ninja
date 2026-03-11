@@ -2862,6 +2862,14 @@ ${currentStatusContext}
     return parts;
   }
 
+  async sendDirectMessage(telegramId: string, text: string) {
+    try {
+      await this.bot.telegram.sendMessage(telegramId, text);
+    } catch (error) {
+      logger.error(`Failed to send DM to ${telegramId}:`, error);
+    }
+  }
+
   async notifyAllProducers(updates: Record<number, string>) {
     try {
       const TEST_MODE = process.env.TEST_MODE === 'true';

@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { logger } from '../utils/logger';
 import { SupabaseClient } from '../database/supabase';
+import { AIServiceClient } from '../services/ai-client';
 import { runStatusUpdate } from './orchestrator';
 import { getSmartBot } from '../bot/smart-bot';
 import { isInQuietHours, checkWeekendPolicy } from '../utils/schedule-helpers';
@@ -14,6 +15,72 @@ export function startScheduler() {
     logger.info('Scheduled status update triggered');
     await checkAndTriggerUpdate();
   });
+
+  // Глоссарий: автообновление 1-го числа каждого месяца в 03:00
+  cron.schedule('0 3 1 * *', async () => {
+    logger.info('Monthly glossary auto-discovery triggered');
+    await runGlossaryDiscovery();
+  });
+}
+
+export async function runGlossaryDiscovery() {
+  try {
+    const projects = await SupabaseClient.getAllProjects();
+    logger.info(`Glossary discovery: processing ${projects.length} projects`);
+
+    let totalNew = 0;
+
+    for (const project of projects) {
+      try {
+        if (project.status === 'finished') {
+          logger.info(`Glossary: skipping finished project ${project.project_name}`);
+          continue;
+        }
+
+        const messages = await SupabaseClient.getLastMessagesForProject(project.project_id, 200);
+
+        if (messages.length < 10) {
+          logger.info(`Glossary: skipping ${project.project_name} — too few messages (${messages.length})`);
+          continue;
+        }
+
+        const conversationText = await SupabaseClient.formatConversationWithRoles(messages);
+
+        const result = await AIServiceClient.discoverGlossaryTerms({
+          conversation: conversationText,
+          projectName: project.project_name
+        });
+
+        totalNew += result.newTermsAdded;
+        logger.info(`Glossary: ${project.project_name} — found ${result.discovered.length}, new: ${result.newTermsAdded}`);
+
+        // Пауза между проектами чтобы не перегружать AI
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } catch (projError) {
+        logger.error(`Glossary discovery error for ${project.project_name}:`, projError);
+      }
+    }
+
+    logger.info(`Glossary discovery complete: ${totalNew} new terms added across all projects`);
+
+    // Уведомляем админа если найдены новые термины
+    if (totalNew > 0) {
+      try {
+        const adminTgId = process.env.TEST_TELEGRAM_ID || '489599665';
+        const smartBot = getSmartBot();
+        await smartBot.sendDirectMessage(
+          adminTgId,
+          `📚 Глоссарий обновлён автоматически!\n\n` +
+          `Найдено новых терминов: ${totalNew}\n` +
+          `Используйте /admin_glossary для просмотра и одобрения.`
+        );
+      } catch (notifyError) {
+        logger.warn('Failed to notify admin about glossary update:', notifyError);
+      }
+    }
+  } catch (error) {
+    logger.error('Error in glossary discovery:', error);
+  }
 }
 
 export async function checkAndTriggerUpdate() {
