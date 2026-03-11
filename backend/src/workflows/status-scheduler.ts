@@ -370,18 +370,18 @@ export function formatStatusForClient(
   // Маркер по категории
   const marker = (cat: string) => {
     switch (cat) {
-      case 'approved': return '💚';
-      case 'important': return '❤️';
-      case 'dates': return '💛';
-      case 'in_progress': return '💛';
-      default: return '📍';
+      case 'approved': return '🟢';
+      case 'important': return '🔴';
+      case 'dates': return '🟡';
+      case 'in_progress': return '🟡';
+      default: return '⚪';
     }
   };
 
   if (format === 'короткий') {
     // Короткий: нумерованный список, одна строка на блок
-    // Пример: 1. 💛Монтаж — Ждём ОС
-    //         2. 💚Музыка — Согласована
+    // Пример: 1. 🟡Монтаж — Ждём ОС
+    //         2. 🟢Музыка — Согласована
     let num = 1;
     const lines: string[] = [];
     const approvedNames: string[] = [];
@@ -399,7 +399,7 @@ export function formatStatusForClient(
     }
 
     if (approvedNames.length > 0) {
-      lines.push(`${num}. 💚Согласовано\n${approvedNames.join(', ')}`);
+      lines.push(`${num}. 🟢Согласовано\n${approvedNames.join(', ')}`);
     }
 
     sections.push(lines.join('\n\n'));
