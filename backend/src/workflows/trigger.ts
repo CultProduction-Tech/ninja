@@ -24,7 +24,7 @@ export async function checkAndTriggerUpdate() {
 
     const chats = await SupabaseClient.getAllChats();
     const systemSettings = await SupabaseClient.getSystemSettings();
-    const messageLimit = systemSettings.number_of_new_messages || 50;
+    const messageLimit = systemSettings.number_of_new_messages || 200;
 
     let needsAnotherRun = false;
     let totalUnanalyzed = 0;

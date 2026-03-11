@@ -22,7 +22,7 @@ export async function runStatusUpdate(): Promise<Record<number, string>> {
   try {
     const chats = await SupabaseClient.getAllChats();
     const systemSettings = await SupabaseClient.getSystemSettings();
-    const messageLimit = systemSettings.number_of_new_messages || 100;
+    const messageLimit = systemSettings.number_of_new_messages || 200;
 
     logger.info(`Found ${chats.length} chats to process`);
 
@@ -76,6 +76,12 @@ async function processChat(chat: any, messageLimit: number, dryRun: boolean = fa
 
     if (!project) {
       logger.warn(`Project ${projectId} not found`);
+      return null;
+    }
+
+    // Пропускаем завершённые проекты
+    if (project.status === 'finished') {
+      logger.info(`Project ${projectId} (${project.project_name}) is finished, skipping`);
       return null;
     }
 
