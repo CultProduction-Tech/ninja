@@ -50,8 +50,6 @@ export class SmartBot {
         message += '🔹 /start - приветствие и описание бота\n';
         message += '🔹 /status - статусы всех проектов\n';
         message += '🔹 /status <название> - статус конкретного проекта\n';
-        message += '🔹 /settings - настройки рассылки ваших проектов\n';
-        message += '🔹 /settings <название> <поле> <значение> - изменить настройку\n';
         message += '🔹 /analyze - запустить анализ вручную (продюсеры)\n';
         message += '🔹 /help - показать эту справку\n';
 
@@ -109,22 +107,24 @@ export class SmartBot {
         const isAdmin = userId === TEST_TELEGRAM_ID;
 
         if (userType === 'producer' || isAdmin) {
+          const projects = await this.getUserProjects(userId);
+          const projectList = projects.length > 0
+            ? projects.map((p: any) => `• ${p.project_name}`).join('\n')
+            : 'Пока нет привязанных проектов.';
+
           await ctx.reply(
             'Привет! Я — Статус Ниндзя 🥷\n\n' +
-            'Читаю рабочие чаты проектов и собираю статусы автоматически.\n' +
-            'Статусы приходят по расписанию — или можно посмотреть прямо сейчас.',
-            Markup.inlineKeyboard([
-              [Markup.button.callback('📊 Статусы проектов', 'menu:statuses')],
-              [Markup.button.callback('⚙️ Настройки рассылки', 'menu:settings')],
-            ])
+            'Читаю рабочие чаты и собираю статусы автоматически.\n\n' +
+            `Ваши проекты:\n${projectList}\n\n` +
+            'Просто напишите мне:\n' +
+            '• «статус» — покажу статусы ваших проектов\n' +
+            '• Любой вопрос — отвечу по вашим проектам\n' +
+            '• /help — все команды'
           );
         } else if (userType === 'client') {
           await ctx.reply(
             'Здравствуйте! Я — бот для отслеживания статусов проектов.\n\n' +
-            'Нажмите кнопку, чтобы посмотреть статус.',
-            Markup.inlineKeyboard([
-              [Markup.button.callback('📊 Статус проекта', 'menu:statuses')],
-            ])
+            'Просто напишите «статус» или задайте вопрос по проекту.'
           );
         } else {
           await ctx.reply(
@@ -220,77 +220,10 @@ export class SmartBot {
         }
 
         if (projects.length > 1) {
-          const header = isAdmin
-            ? `👑 Найдено проектов: ${projects.length}\nОтправляю статусы...`
-            : `📊 Найдено проектов: ${projects.length}\nОтправляю статусы...`;
-          await ctx.reply(header);
+          await ctx.reply(`📊 Найдено проектов: ${projects.length}\nОтправляю статусы...`);
         }
 
-        for (let i = 0; i < projects.length; i++) {
-          const project = projects[i];
-
-          try {
-            const clientSettings = await SupabaseClient.getClientSettings(project.project_id);
-            const defaults = getDefaultClientSettings();
-            const format = clientSettings.format_status || defaults.format_status;
-
-            const activeBlocks = await DashboardClient.getActiveBlocks(project.project_name);
-
-            if (activeBlocks.length === 0) {
-              await ctx.reply(`📋 ${project.project_name}\n\n⚠️ Нет активных блоков для этого проекта`);
-              continue;
-            }
-
-            // Ручные статусы из дашборда (приоритет)
-            const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
-
-            // AI-статусы
-            const allStatuses = await SupabaseClient.getCustomBlockStatuses(project.project_id);
-
-            // Собираем карту: ручные > AI
-            const statusMap: Record<string, string> = {};
-            for (const block of activeBlocks) {
-              const blockKey = block.id || block.name;
-              const manual = manualStatuses.get(blockKey);
-              if (manual && manual.status !== 'Не определён') {
-                statusMap[blockKey] = manual.status;
-                continue;
-              }
-              const status = allStatuses.find((s: any) => s.block_id === blockKey);
-              if (status?.status_analysis) {
-                statusMap[blockKey] = status.status_analysis;
-              }
-            }
-
-            let statusText = formatStatusForClient(activeBlocks, statusMap, format);
-
-            // Резолвим [#id] теги в кликабельные ссылки на сообщения
-            const refIds = [...statusText.matchAll(/\[#(\d+)/g)].map(m => parseInt(m[1], 10));
-            const linkMap = await SupabaseClient.buildLinkMapByIds(refIds);
-            statusText = resolveMessageLinksHtml(statusText, linkMap);
-
-            const statusMessage = `📋 ${project.project_name}\n\n${statusText}`;
-
-            if (statusMessage.length <= 4000) {
-              await ctx.reply(statusMessage, { parse_mode: 'HTML' });
-            } else {
-              const parts = this.splitMessage(statusMessage, 4000);
-              for (let j = 0; j < parts.length; j++) {
-                await ctx.reply(parts[j], { parse_mode: 'HTML' });
-                if (j < parts.length - 1) {
-                  await new Promise(resolve => setTimeout(resolve, 300));
-                }
-              }
-            }
-          } catch (projError) {
-            logger.error(`Error formatting status for ${project.project_name}:`, projError);
-            await ctx.reply(`📋 ${project.project_name}\n\n❌ Ошибка при получении статуса`);
-          }
-
-          if (i < projects.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 800));
-          }
-        }
+        await this.sendStatusForProjects(ctx, projects);
 
       } catch (error) {
         logger.error('Error in /status:', error);
@@ -1614,11 +1547,7 @@ export class SmartBot {
       try {
         await ctx.answerCbQuery();
         await ctx.editMessageText(
-          '🥷 Статус Ниндзя\n\nЧитаю рабочие чаты проектов и собираю статусы автоматически.',
-          Markup.inlineKeyboard([
-            [Markup.button.callback('📊 Статусы проектов', 'menu:statuses')],
-            [Markup.button.callback('⚙️ Настройки рассылки', 'menu:settings')],
-          ])
+          '🥷 Статус Ниндзя\n\nЧитаю рабочие чаты проектов и собираю статусы автоматически.\n\nПросто напишите вопрос или «статус».'
         );
       } catch (error) {
         logger.error('Error in menu:main callback:', error);
@@ -1917,6 +1846,128 @@ export class SmartBot {
       }
     });
 
+    // === CALLBACK: Копировать статус (plain text без HTML) ===
+    this.bot.action(/^copy_status:(\d+)$/, async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const projectId = parseInt((ctx.match as RegExpMatchArray)[1], 10);
+
+        const project = await SupabaseClient.getProject(projectId);
+        if (!project) {
+          await ctx.reply('❌ Проект не найден');
+          return;
+        }
+
+        const activeBlocks = await DashboardClient.getActiveBlocks(project.project_name);
+        const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
+        const allStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
+
+        const statusMap: Record<string, string> = {};
+        for (const block of activeBlocks) {
+          const blockKey = block.id || block.name;
+          const manual = manualStatuses.get(blockKey);
+          if (manual && manual.status !== 'Не определён') {
+            statusMap[blockKey] = manual.status;
+            continue;
+          }
+          const status = allStatuses.find((s: any) => s.block_id === blockKey);
+          if (status?.status_analysis) {
+            statusMap[blockKey] = status.status_analysis;
+          }
+        }
+
+        // Формируем plain text (без HTML, без ссылок)
+        let plainText = `Статус: ${project.project_name}\n\n`;
+        for (const block of activeBlocks) {
+          const blockKey = block.id || block.name;
+          const displayName = getBlockDisplayName(block.name);
+          const statusVal = statusMap[blockKey] || 'Нет данных';
+          // Убираем [#id] теги из текста
+          const cleanStatus = statusVal.replace(/\s*\[#\d+\]/g, '');
+          plainText += `${displayName}: ${cleanStatus}\n`;
+        }
+
+        // Отправляем как monospace чтобы было удобно копировать
+        const escaped = plainText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        await ctx.reply(`<pre>${escaped}</pre>`, { parse_mode: 'HTML' });
+      } catch (error) {
+        logger.error('Error in copy_status callback:', error);
+        await ctx.reply('❌ Ошибка при копировании статуса');
+      }
+    });
+
+    // === CALLBACK: Отправить статус клиенту ===
+    this.bot.action(/^client_status:(\d+)$/, async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        const projectId = parseInt((ctx.match as RegExpMatchArray)[1], 10);
+
+        const project = await SupabaseClient.getProject(projectId);
+        if (!project) {
+          await ctx.reply('❌ Проект не найден');
+          return;
+        }
+
+        // Ищем клиента проекта (приходит из join в getProject)
+        const projectClient = project.client;
+
+        if (!projectClient || !projectClient.client_chat_id) {
+          await ctx.reply(`❌ У проекта "${project.project_name}" нет привязанного клиента.`);
+          return;
+        }
+
+        const activeBlocks = await DashboardClient.getActiveBlocks(project.project_name);
+        const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
+        const allStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
+
+        const statusMap: Record<string, string> = {};
+        for (const block of activeBlocks) {
+          const blockKey = block.id || block.name;
+          const manual = manualStatuses.get(blockKey);
+          if (manual && manual.status !== 'Не определён') {
+            statusMap[blockKey] = manual.status;
+            continue;
+          }
+          const status = allStatuses.find((s: any) => s.block_id === blockKey);
+          if (status?.status_analysis) {
+            statusMap[blockKey] = status.status_analysis;
+          }
+        }
+
+        const clientText = formatStatusForClient(activeBlocks, statusMap, 'короткий');
+        // Убираем [#id] теги для клиента
+        const cleanClientText = clientText.replace(/\s*\[#\d+\]/g, '');
+
+        const clientTgId = projectClient.client_chat_id?.toString();
+        if (!clientTgId) {
+          await ctx.reply(`❌ У клиента нет Telegram ID.`);
+          return;
+        }
+
+        const dataKey = `${projectId}_${Date.now()}`;
+        this.pendingClientStatuses.set(dataKey, {
+          clientTgId,
+          projectName: project.project_name,
+          clientText: cleanClientText
+        });
+
+        // Показываем превью и кнопки подтверждения
+        await ctx.reply(
+          `📤 Отправить клиенту (${projectClient.client_name || 'клиент'})?\n\n` +
+          `Превью:\n${cleanClientText}`,
+          Markup.inlineKeyboard([
+            [
+              Markup.button.callback('✅ Отправить', `send_to_client:${dataKey}`),
+              Markup.button.callback('❌ Отмена', `skip_client:${dataKey}`),
+            ],
+          ])
+        );
+      } catch (error) {
+        logger.error('Error in client_status callback:', error);
+        await ctx.reply('❌ Ошибка при подготовке отправки клиенту');
+      }
+    });
+
     // Сбор сообщений из групповых чатов (бывший Silent Bot)
     this.bot.on('new_chat_members', async (ctx) => {
       try {
@@ -2014,158 +2065,130 @@ export class SmartBot {
 
         logger.info(`Smart Bot: User ${userId} sent: ${userMessage}`);
 
+        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
+        const isAdmin = userId === TEST_TELEGRAM_ID;
+        const userType = await this.getUserType(userId);
+        const userProjects = isAdmin
+          ? await SupabaseClient.getAllProjects()
+          : await this.getUserProjects(userId);
+
+        // === 1. Проверяем, не просит ли пользователь статус ===
+        const statusKeywords = ['статус', 'status', 'как дела', 'что по проект'];
+        const isAskingForStatus = statusKeywords.some(kw =>
+          userMessage.toLowerCase().includes(kw)
+        );
+
+        if (isAskingForStatus) {
+          await ctx.sendChatAction('typing');
+
+          if (!userProjects || userProjects.length === 0) {
+            await ctx.reply('У вас пока нет привязанных проектов.');
+            return;
+          }
+
+          // Проверяем, упомянут ли конкретный проект в сообщении
+          const msgLower = userMessage.toLowerCase();
+          let projectsToShow = userProjects;
+
+          const mentionedProject = userProjects.find((p: any) =>
+            msgLower.includes(p.project_name?.toLowerCase())
+          );
+          if (mentionedProject) {
+            projectsToShow = [mentionedProject];
+          }
+
+          if (projectsToShow.length > 1) {
+            await ctx.reply(`📊 Статусы ваших проектов (${projectsToShow.length}):`);
+          }
+
+          await this.sendStatusForProjects(ctx, projectsToShow);
+          return;
+        }
+
+        // === 2. Определяем контекст проекта ===
         let context = this.userContext.get(userId);
         const TEN_MINUTES = 10 * 60 * 1000;
 
+        // Из reply на статус
         if ('reply_to_message' in ctx.message && ctx.message.reply_to_message) {
           const replyToMsg = ctx.message.reply_to_message;
-
           if ('text' in replyToMsg && replyToMsg.text) {
-            const replyText = replyToMsg.text;
-
-            const projectMatch = replyText.match(/Статус на сегодня по проекту "(.+?)"/);
-
+            const projectMatch = replyToMsg.text.match(/📋 (.+?)[\n]/);
             if (projectMatch && projectMatch[1]) {
-              const projectName = projectMatch[1];
-              logger.info(`User replying to status of project: ${projectName}`);
-
-              try {
-                const allProjects = await SupabaseClient.getAllProjects();
-                const project = allProjects.find((p: any) => p.project_name === projectName);
-
-                if (project) {
-                  context = {
-                    projectId: project.project_id,
-                    timestamp: Date.now()
-                  };
-                  this.userContext.set(userId, context);
-                  logger.info(`Context set from reply: project ${project.project_id} (${projectName})`);
-                }
-              } catch (error) {
-                logger.error('Error finding project from reply:', error);
+              const projectName = projectMatch[1].trim();
+              const project = userProjects.find((p: any) => p.project_name === projectName);
+              if (project) {
+                context = { projectId: project.project_id, timestamp: Date.now() };
+                this.userContext.set(userId, context);
+                logger.info(`Context set from reply: project ${project.project_id} (${projectName})`);
               }
             }
           }
         }
 
-        const numberedQuestionMatch = userMessage.match(/^\d+\.\s+(.+)/);
-        const isNumberedQuestion = numberedQuestionMatch !== null;
+        // Из упоминания проекта в тексте
+        if (!context || (Date.now() - context.timestamp) >= TEN_MINUTES) {
+          const mentionedProject = userProjects.find((p: any) =>
+            userMessage.toLowerCase().includes(p.project_name?.toLowerCase())
+          );
+          if (mentionedProject) {
+            context = { projectId: mentionedProject.project_id, timestamp: Date.now() };
+            this.userContext.set(userId, context);
+            logger.info(`Context set from mention: project ${mentionedProject.project_id} (${mentionedProject.project_name})`);
+          }
+          // Если у продюсера один проект — автоматически используем его
+          else if (userProjects.length === 1) {
+            context = { projectId: userProjects[0].project_id, timestamp: Date.now() };
+            this.userContext.set(userId, context);
+            logger.info(`Context auto-set: single project ${userProjects[0].project_id}`);
+          }
+        }
 
+        // === 3. Вопрос по проекту — ищем ответ в переписке ===
         if (context && (Date.now() - context.timestamp) < TEN_MINUTES) {
-          logger.info(`User ${userId} has recent context for project ${context.projectId}, checking message type...`);
+          // Обновляем timestamp при каждом обращении
+          this.userContext.set(userId, { projectId: context.projectId, timestamp: Date.now() });
 
-          const questionIndicators = [
-            '?', 'когда', 'где', 'как', 'почему', 'зачем', 'что ', 'какой', 'какая', 'какое', 'какие',
-            'можно ли', 'есть ли', 'был ли', 'было ли', 'были ли', 'будет ли', 'скажи', 'расскажи', 'покажи', 'отправь'
-          ];
-          const isQuestion = isNumberedQuestion || questionIndicators.some(indicator =>
-            userMessage.toLowerCase().includes(indicator)
-          );
+          await ctx.sendChatAction('typing');
+          const progressMsg = await ctx.reply('🔍 Анализирую переписку проекта...');
 
-          if (isQuestion) {
-            logger.info(`User asking question about project ${context.projectId}`);
-
-            try {
-              await ctx.sendChatAction('typing');
-              const progressMsg = await ctx.reply('🔍 Анализирую переписку проекта...');
-
-              const project = await SupabaseClient.getProject(context.projectId);
-              if (!project) {
-                await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
-                await ctx.reply('❌ Проект не найден');
-                return;
-              }
-
-              const questionText = numberedQuestionMatch ? numberedQuestionMatch[1] : userMessage;
-
-              const answer = await this.answerQuestionIteratively(
-                context.projectId,
-                project.project_name,
-                questionText,
-                progressMsg.message_id,
-                ctx
-              );
-
-              try {
-                await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
-              } catch (e) {
-              }
-
-              await ctx.reply(answer);
-
-              this.userContext.set(userId, {
-                projectId: context.projectId,
-                timestamp: Date.now()
-              });
-
-              return;
-            } catch (error: any) {
-              logger.error('Error handling question:', error);
-              await ctx.reply('❌ Не удалось проанализировать переписку. Попробуйте позже или обратитесь к команде проекта.');
+          try {
+            const project = await SupabaseClient.getProject(context.projectId);
+            if (!project) {
+              await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
+              await ctx.reply('❌ Проект не найден');
               return;
             }
-          }
 
-          const correctionKeywords = [
-            'поправ', 'исправ', 'на самом деле', 'верно', 'неверно', 'ошибка', 'не так',
-            'должно быть', 'изменить', 'согласован', 'утвержд', 'одобрен', 'готов',
-            'завершен', 'окнул', 'будет', 'делаем', 'делали', 'сделал', 'отправ',
-            'начин', 'заверш', 'тут ', 'здесь', 'это ', 'работе', 'процесс'
-          ];
-          const isLikelyCorrection = correctionKeywords.some(keyword =>
-            userMessage.toLowerCase().includes(keyword)
-          );
-
-          const isReplyToStatus = 'reply_to_message' in ctx.message &&
-                                  ctx.message.reply_to_message &&
-                                  'text' in ctx.message.reply_to_message &&
-                                  ctx.message.reply_to_message.text.includes('Статус на сегодня по проекту');
-
-          if ((isLikelyCorrection || isReplyToStatus) && !isQuestion) {
-            await ctx.sendChatAction('typing');
-            await ctx.reply('📝 Понял, обновляю статусы...');
+            const answer = await this.answerQuestionIteratively(
+              context.projectId,
+              project.project_name,
+              userMessage,
+              progressMsg.message_id,
+              ctx
+            );
 
             try {
-              await this.handleStatusCorrection(ctx, context.projectId, userMessage);
-              this.userContext.set(userId, {
-                projectId: context.projectId,
-                timestamp: Date.now()
-              });
-              return;
-            } catch (error) {
-              logger.error('Error handling correction:', error);
-              await ctx.reply('❌ Произошла ошибка при обновлении статусов');
-            }
+              await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
+            } catch (e) {}
+
+            await ctx.reply(answer);
+            return;
+          } catch (error: any) {
+            logger.error('Error answering question from conversation:', error);
+            try {
+              await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
+            } catch (e) {}
+            // Fallthrough to general AI chat
           }
         }
 
-        const userType = await this.getUserType(userId);
+        // === 4. Общий AI-чат (без контекста проекта) ===
         await ctx.sendChatAction('typing');
-        const userProjects = await this.getUserProjects(userId);
-
-        const linkKeywords = ['ссылк', 'материал', 'статик', 'файл', 'где найти', 'где посмотреть', 'покаж'];
-        const isAskingForLinks = linkKeywords.some(keyword =>
-          userMessage.toLowerCase().includes(keyword)
-        );
-
-        let enhancedMessage = userMessage;
-        let foundLinks: string[] = [];
-
-        if (context && isAskingForLinks) {
-          logger.info(`User asking for links, searching project ${context.projectId} messages...`);
-          foundLinks = await this.searchProjectMessages(context.projectId, userMessage);
-
-          if (foundLinks.length > 0) {
-            logger.info(`Found ${foundLinks.length} links in project messages`);
-            enhancedMessage = `${userMessage}\n\n[НАЙДЕННЫЕ ССЫЛКИ В ПЕРЕПИСКЕ ПРОЕКТА]:\n${foundLinks.join('\n')}`;
-          } else {
-            logger.info(`No links found in project messages`);
-          }
-        }
 
         const response = await AIServiceClient.chatWithContext({
           userId,
-          message: enhancedMessage,
+          message: userMessage,
           userType,
           projects: userProjects
         });
@@ -2219,6 +2242,78 @@ export class SmartBot {
     } catch (error) {
       logger.error('Error getting user projects:', error);
       return [];
+    }
+  }
+
+  private async sendStatusForProjects(ctx: any, projects: any[]) {
+    for (let i = 0; i < projects.length; i++) {
+      const project = projects[i];
+
+      try {
+        const clientSettings = await SupabaseClient.getClientSettings(project.project_id);
+        const defaults = getDefaultClientSettings();
+        const format = clientSettings.format_status || defaults.format_status;
+
+        const activeBlocks = await DashboardClient.getActiveBlocks(project.project_name);
+
+        if (activeBlocks.length === 0) {
+          await ctx.reply(`📋 ${project.project_name}\n\n⚠️ Нет активных блоков для этого проекта`);
+          continue;
+        }
+
+        const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
+        const allStatuses = await SupabaseClient.getCustomBlockStatuses(project.project_id);
+
+        const statusMap: Record<string, string> = {};
+        for (const block of activeBlocks) {
+          const blockKey = block.id || block.name;
+          const manual = manualStatuses.get(blockKey);
+          if (manual && manual.status !== 'Не определён') {
+            statusMap[blockKey] = manual.status;
+            continue;
+          }
+          const status = allStatuses.find((s: any) => s.block_id === blockKey);
+          if (status?.status_analysis) {
+            statusMap[blockKey] = status.status_analysis;
+          }
+        }
+
+        let statusText = formatStatusForClient(activeBlocks, statusMap, format);
+
+        const refIds = [...statusText.matchAll(/\[#(\d+)/g)].map(m => parseInt(m[1], 10));
+        const linkMap = await SupabaseClient.buildLinkMapByIds(refIds);
+        statusText = resolveMessageLinksHtml(statusText, linkMap);
+
+        const statusMessage = `📋 ${project.project_name}\n\n${statusText}`;
+
+        // Кнопки "Копировать" и "Отправить клиенту"
+        const buttons = Markup.inlineKeyboard([
+          [
+            Markup.button.callback('📋 Копировать', `copy_status:${project.project_id}`),
+            Markup.button.callback('📤 Отправить клиенту', `client_status:${project.project_id}`),
+          ],
+        ]);
+
+        if (statusMessage.length <= 4000) {
+          await ctx.reply(statusMessage, { parse_mode: 'HTML', ...buttons });
+        } else {
+          const parts = this.splitMessage(statusMessage, 4000);
+          for (let j = 0; j < parts.length; j++) {
+            const isLast = j === parts.length - 1;
+            await ctx.reply(parts[j], { parse_mode: 'HTML', ...(isLast ? buttons : {}) });
+            if (!isLast) {
+              await new Promise(resolve => setTimeout(resolve, 300));
+            }
+          }
+        }
+      } catch (projError) {
+        logger.error(`Error formatting status for ${project.project_name}:`, projError);
+        await ctx.reply(`📋 ${project.project_name}\n\n❌ Ошибка при получении статуса`);
+      }
+
+      if (i < projects.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 800));
+      }
     }
   }
 
