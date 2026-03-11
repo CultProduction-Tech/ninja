@@ -2144,7 +2144,33 @@ export class SmartBot {
           }
         }
 
-        // === 3. Вопрос по проекту — ищем ответ в переписке ===
+        // === 3. Коррекция статуса (поменяй, измени, обнови) ===
+        if (context && (Date.now() - context.timestamp) < TEN_MINUTES) {
+          const correctionKeywords = [
+            'поменяй', 'измени', 'обнови', 'поставь', 'смени',
+            'поправ', 'исправ', 'должно быть', 'на самом деле',
+            'согласован', 'утвержд', 'одобрен', 'не так'
+          ];
+          const msgLower = userMessage.toLowerCase();
+          const isCorrection = correctionKeywords.some(kw => msgLower.includes(kw));
+
+          if (isCorrection) {
+            this.userContext.set(userId, { projectId: context.projectId, timestamp: Date.now() });
+            await ctx.sendChatAction('typing');
+            await ctx.reply('📝 Понял, обновляю статусы...');
+
+            try {
+              await this.handleStatusCorrection(ctx, context.projectId, userMessage);
+              return;
+            } catch (error) {
+              logger.error('Error handling correction:', error);
+              await ctx.reply('❌ Произошла ошибка при обновлении статусов');
+              return;
+            }
+          }
+        }
+
+        // === 4. Вопрос по проекту — ищем ответ в переписке ===
         if (context && (Date.now() - context.timestamp) < TEN_MINUTES) {
           // Обновляем timestamp при каждом обращении
           this.userContext.set(userId, { projectId: context.projectId, timestamp: Date.now() });
@@ -2183,7 +2209,7 @@ export class SmartBot {
           }
         }
 
-        // === 4. Общий AI-чат (без контекста проекта) ===
+        // === 5. Общий AI-чат (без контекста проекта) ===
         await ctx.sendChatAction('typing');
 
         const response = await AIServiceClient.chatWithContext({
