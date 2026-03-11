@@ -225,6 +225,21 @@ async function saveAnalysisResults(
       const prefix = dryRun ? '[DRY RUN] ' : '';
       logger.info(`${prefix}Updated block: ${projectName} / ${block.name}`);
     }
+
+    // Синхронизируем все статусы в project_task_status (Катина таблица)
+    try {
+      const statusMap: Record<string, string> = {};
+      for (const block of blocks) {
+        const blockKey = block.id || block.name;
+        const status = analysisResults[blockKey];
+        if (status && !status.toLowerCase().includes('информация отсутствует')) {
+          statusMap[blockKey] = status;
+        }
+      }
+      await DashboardClient.syncProjectTaskStatus(projectId, projectName, blocks, statusMap);
+    } catch (syncError) {
+      logger.warn(`project_task_status sync failed for ${projectName} (non-critical):`, syncError);
+    }
   } catch (error) {
     logger.error('Error saving analysis results:', error);
     throw error;

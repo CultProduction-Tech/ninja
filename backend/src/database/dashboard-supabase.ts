@@ -236,4 +236,56 @@ export class DashboardClient {
     }
   }
 
+  /**
+   * Синхронизировать все статусы проекта в project_task_status (Катина таблица).
+   * Собирает блоки с текущими статусами в pre_blocks/post_blocks jsonb.
+   */
+  static async syncProjectTaskStatus(
+    projectId: number,
+    projectName: string,
+    blocks: DashboardBlock[],
+    statusMap: Record<string, string>
+  ): Promise<void> {
+    try {
+      const preBlocks: Array<{ id: string; name: string; type: string; status: string }> = [];
+      const postBlocks: Array<{ id: string; name: string; type: string; status: string }> = [];
+
+      for (const block of blocks) {
+        const blockKey = block.id || block.name;
+        const status = statusMap[blockKey] || 'Не определён';
+
+        const entry = {
+          id: block.id,
+          name: block.name,
+          type: block.type,
+          status
+        };
+
+        if (block.phase === 'pre') {
+          preBlocks.push(entry);
+        } else {
+          postBlocks.push(entry);
+        }
+      }
+
+      const { error } = await dashboardSupabase
+        .from('project_task_status')
+        .upsert({
+          project_id: projectId,
+          project_name: projectName,
+          pre_blocks: preBlocks,
+          post_blocks: postBlocks,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'project_id' });
+
+      if (error) {
+        logger.warn(`project_task_status sync failed for ${projectName}:`, error);
+      } else {
+        logger.info(`project_task_status synced: ${projectName} (${preBlocks.length} pre + ${postBlocks.length} post)`);
+      }
+    } catch (error) {
+      logger.error(`Error syncing project_task_status for ${projectName}:`, error);
+    }
+  }
+
 }
