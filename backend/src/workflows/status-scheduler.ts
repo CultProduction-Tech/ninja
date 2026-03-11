@@ -367,14 +367,24 @@ export function formatStatusForClient(
 
   const sections: string[] = [];
 
-  // Маркер по категории
+  // Маркер по категории (кастомные эмодзи Cult или стандартные кружочки)
+  const customGreen = process.env.CUSTOM_EMOJI_GREEN;
+  const customRed = process.env.CUSTOM_EMOJI_RED;
+  const customYellow = process.env.CUSTOM_EMOJI_YELLOW;
+  const customWhite = process.env.CUSTOM_EMOJI_WHITE;
+
   const marker = (cat: string) => {
+    const useCustom = customGreen && customRed && customYellow;
     switch (cat) {
-      case 'approved': return '🟢';
-      case 'important': return '🔴';
-      case 'dates': return '🟡';
-      case 'in_progress': return '🟡';
-      default: return '⚪';
+      case 'approved':
+        return useCustom ? `<tg-emoji emoji-id="${customGreen}">🟢</tg-emoji>` : '🟢';
+      case 'important':
+        return useCustom ? `<tg-emoji emoji-id="${customRed}">🔴</tg-emoji>` : '🔴';
+      case 'dates':
+      case 'in_progress':
+        return useCustom ? `<tg-emoji emoji-id="${customYellow}">🟡</tg-emoji>` : '🟡';
+      default:
+        return useCustom && customWhite ? `<tg-emoji emoji-id="${customWhite}">⚪</tg-emoji>` : '⚪';
     }
   };
 
@@ -399,7 +409,7 @@ export function formatStatusForClient(
     }
 
     if (approvedNames.length > 0) {
-      lines.push(`${num}. 🟢Согласовано\n${approvedNames.join(', ')}`);
+      lines.push(`${num}. ${marker('approved')}Согласовано\n${approvedNames.join(', ')}`);
     }
 
     sections.push(lines.join('\n\n'));

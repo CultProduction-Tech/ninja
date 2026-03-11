@@ -1359,6 +1359,26 @@ export class SmartBot {
       }
     });
 
+    // === /admin_emoji — отправь кастомный эмодзи, бот покажет его ID ===
+    this.bot.command('admin_emoji', async (ctx) => {
+      try {
+        const userId = ctx.from.id.toString();
+        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
+        if (userId !== TEST_TELEGRAM_ID) {
+          ctx.reply('⛔ У вас нет доступа к этой команде.');
+          return;
+        }
+
+        await ctx.reply(
+          '🔍 Отправьте мне сообщение с кастомным эмодзи Cult.\n' +
+          'Я покажу custom_emoji_id для каждого.\n\n' +
+          'Можете отправить сразу несколько в одном сообщении.'
+        );
+      } catch (error) {
+        logger.error('Error in /admin_emoji:', error);
+      }
+    });
+
     this.bot.command('admin_glossary_approve', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
@@ -2063,11 +2083,31 @@ export class SmartBot {
 
         if (userMessage.startsWith('/')) return;
 
+        // Обработка кастомных эмодзи — показать ID (для админа)
+        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
+        if (userId === TEST_TELEGRAM_ID && 'entities' in ctx.message && ctx.message.entities) {
+          const customEmojis = ctx.message.entities.filter(
+            (e: any) => e.type === 'custom_emoji'
+          );
+          if (customEmojis.length > 0) {
+            const emojiInfo = customEmojis.map((e: any, i: number) => {
+              const emojiText = userMessage.substring(e.offset, e.offset + e.length);
+              return `${i + 1}. "${emojiText}" → custom_emoji_id: ${e.custom_emoji_id}`;
+            }).join('\n');
+
+            // Если сообщение состоит только из эмодзи (нет другого текста) — показать ID
+            const textWithoutEmoji = userMessage.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').trim();
+            if (textWithoutEmoji.length < 5) {
+              await ctx.reply(`🔍 Найдено ${customEmojis.length} кастомных эмодзи:\n\n${emojiInfo}`);
+              return;
+            }
+          }
+        }
+
         logger.info(`Smart Bot: User ${userId} sent: ${userMessage}`);
 
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
-        const isAdmin = userId === TEST_TELEGRAM_ID;
         const userType = await this.getUserType(userId);
+        const isAdmin = userId === TEST_TELEGRAM_ID;
         const userProjects = isAdmin
           ? await SupabaseClient.getAllProjects()
           : await this.getUserProjects(userId);
