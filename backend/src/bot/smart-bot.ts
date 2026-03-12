@@ -27,12 +27,19 @@ export class SmartBot {
     this.bot = new Telegraf(token, {
       handlerTimeout: 300000
     });
-    this.setupHandlers();
+    try {
+      this.setupHandlers();
+      logger.info('All handlers registered successfully');
+    } catch (error) {
+      logger.error('ERROR registering handlers:', error);
+    }
   }
 
   private setupHandlers() {
     // Команды работают только в личке — в группах бот молчит
+    // DEBUG: логируем каждое входящее обновление
     this.bot.use(async (ctx, next) => {
+      logger.info(`DEBUG incoming update: type=${ctx.updateType}, chat=${ctx.chat?.id}, from=${ctx.from?.id}`);
       if (ctx.chat?.type !== 'private' && ctx.message && 'text' in ctx.message && ctx.message.text.startsWith('/')) {
         return; // Игнорируем команды в группах
       }
@@ -2043,9 +2050,9 @@ export class SmartBot {
       }
     });
 
-    this.bot.on('message', async (ctx) => {
+    this.bot.on('message', async (ctx, next) => {
       // В личке — пропускаем, обработается в on('text') ниже
-      if (ctx.chat?.type === 'private') return;
+      if (ctx.chat?.type === 'private') return next();
 
       // Группа/супергруппа — молча собираем сообщения
       try {
@@ -2081,27 +2088,25 @@ export class SmartBot {
         const userId = ctx.from.id.toString();
         const userMessage = ctx.message.text;
 
+        // DEBUG: логируем ВСЕ входящие текстовые сообщения
+        const allEntities = (ctx.message as any).entities || [];
+        logger.info(`DEBUG text handler: user=${userId}, text="${userMessage.substring(0, 50)}", entities=${JSON.stringify(allEntities.map((e: any) => ({ type: e.type, custom_emoji_id: e.custom_emoji_id })))}`);
+
         if (userMessage.startsWith('/')) return;
 
         // Обработка кастомных эмодзи — показать ID (для админа)
         const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
-        if (userId === TEST_TELEGRAM_ID && 'entities' in ctx.message && ctx.message.entities) {
-          const customEmojis = ctx.message.entities.filter(
-            (e: any) => e.type === 'custom_emoji'
+        const customEmojis = allEntities.filter((e: any) => e.type === 'custom_emoji');
+        if (customEmojis.length > 0 && userId === TEST_TELEGRAM_ID) {
+          logger.info(`Smart Bot: Found ${customEmojis.length} custom emoji from admin`);
+          const emojiInfo = customEmojis.map((e: any, i: number) => {
+            const emojiText = userMessage.substring(e.offset, e.offset + e.length);
+            return `${i + 1}. "${emojiText}" → custom_emoji_id: ${e.custom_emoji_id}`;
+          }).join('\n');
+          await ctx.reply(
+            `🔍 Найдено ${customEmojis.length} кастомных эмодзи:\n\n${emojiInfo}`
           );
-          if (customEmojis.length > 0) {
-            const emojiInfo = customEmojis.map((e: any, i: number) => {
-              const emojiText = userMessage.substring(e.offset, e.offset + e.length);
-              return `${i + 1}. "${emojiText}" → custom_emoji_id: ${e.custom_emoji_id}`;
-            }).join('\n');
-
-            // Если сообщение состоит только из эмодзи (нет другого текста) — показать ID
-            const textWithoutEmoji = userMessage.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').trim();
-            if (textWithoutEmoji.length < 5) {
-              await ctx.reply(`🔍 Найдено ${customEmojis.length} кастомных эмодзи:\n\n${emojiInfo}`);
-              return;
-            }
-          }
+          return;
         }
 
         logger.info(`Smart Bot: User ${userId} sent: ${userMessage}`);
