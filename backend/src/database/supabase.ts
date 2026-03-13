@@ -21,6 +21,8 @@ export class SupabaseClient {
     chat_name_tg: string;
     is_analyzed: boolean;
     telegram_message_id?: number;
+    sender_username?: string;
+    sender_name?: string;
   }) {
     logger.info(`saveMessage: telegram_message_id=${data.telegram_message_id} (type: ${typeof data.telegram_message_id})`);
 

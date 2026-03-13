@@ -2072,7 +2072,9 @@ export class SmartBot {
         const chatName = 'title' in message.chat ? message.chat.title : '';
 
         const tgMsgId = message.message_id;
-        logger.info(`Saving message from chat ${chatId}, telegram_message_id=${tgMsgId}`);
+        const senderUsername = message.from?.username || '';
+        const senderName = [message.from?.first_name, message.from?.last_name].filter(Boolean).join(' ');
+        logger.info(`Saving message from chat ${chatId}, telegram_message_id=${tgMsgId}, sender: @${senderUsername} (${senderName})`);
 
         await SupabaseClient.saveMessage({
           telegram_chat_id: chatId,
@@ -2080,7 +2082,9 @@ export class SmartBot {
           message_text: messageText,
           chat_name_tg: chatName || '',
           is_analyzed: false,
-          telegram_message_id: tgMsgId
+          telegram_message_id: tgMsgId,
+          sender_username: senderUsername,
+          sender_name: senderName
         });
 
         logger.info(`Message collected from chat ${chatId}`);
