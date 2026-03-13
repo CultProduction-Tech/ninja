@@ -99,9 +99,9 @@ async function processChat(chat: any, messageLimit: number, dryRun: boolean = fa
 
     // Загружаем ручные статусы из дашборда
     const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
-    const MANUAL_STATUS_MAX_AGE_DAYS = 5;
+    const MANUAL_STATUS_MAX_AGE_DAYS = 3;
 
-    // Фильтруем: блоки со свежим ручным статусом (< 5 дней) не отправляем на AI-анализ
+    // Фильтруем: блоки со свежим ручным статусом (< 3 дней) не отправляем на AI-анализ
     const blocksForAI = activeBlocks.filter(block => {
       const blockKey = block.id || block.name;
       const manual = manualStatuses.get(blockKey);

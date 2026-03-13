@@ -11,7 +11,7 @@ import {
   getBlockEmoji,
 } from '../shared/block-registry';
 
-const MANUAL_STATUS_MAX_AGE_DAYS = 5;
+const MANUAL_STATUS_MAX_AGE_DAYS = 3;
 
 function isManualStatusFresh(manual: { status: string; changedAt: string } | undefined): boolean {
   if (!manual || manual.status === 'Не определён') return false;
@@ -1635,10 +1635,8 @@ export class SmartBot {
 
         let statusText = formatStatusForClient(activeBlocks, statusMap, format);
 
-        // Резолвим [#id] теги в ссылки на сообщения
-        const messages = await SupabaseClient.getLastMessagesForProject(projectId, 200);
-        const linkMap = SupabaseClient.buildMessageLinkMap(messages);
-        statusText = resolveMessageLinksHtml(statusText, linkMap);
+        // Убираем теги [#id] из статуса — ссылки на сообщения здесь не нужны
+        statusText = statusText.replace(/\s*\[#\d+(?:,\s*#?\d+)*\]/g, '');
 
         const formatLabel = format === 'короткий' ? '📝 Короткий формат' : '📝 Длинный формат';
         const fullMessage = `📋 ${project.project_name}\n${formatLabel}\n\n${statusText}`;
@@ -1764,10 +1762,8 @@ export class SmartBot {
 
           let statusText = formatStatusForClient(activeBlocks, statusMap, newFormat);
 
-          // Резолвим [#id] в ссылки
-          const msgs = await SupabaseClient.getLastMessagesForProject(projectId, 200);
-          const linkMap = SupabaseClient.buildMessageLinkMap(msgs);
-          statusText = resolveMessageLinksHtml(statusText, linkMap);
+          // Убираем теги [#id] из статуса
+          statusText = statusText.replace(/\s*\[#\d+(?:,\s*#?\d+)*\]/g, '');
 
           const formatLabel2 = newFormat === 'короткий' ? '📝 Короткий формат' : '📝 Длинный формат';
           const fullMessage = `📋 ${project.project_name}\n${formatLabel2} (изменён ✅)\n\n${statusText}`;
@@ -1911,20 +1907,23 @@ export class SmartBot {
           }
         }
 
-        // Формируем plain text (без HTML, без ссылок)
-        let plainText = `Статус: ${project.project_name}\n\n`;
-        for (const block of activeBlocks) {
-          const blockKey = block.id || block.name;
-          const displayName = getBlockDisplayName(block.name);
-          const statusVal = statusMap[blockKey] || 'Нет данных';
-          // Убираем [#id] теги из текста
-          const cleanStatus = statusVal.replace(/\s*\[#\d+\]/g, '');
-          plainText += `${displayName}: ${cleanStatus}\n`;
-        }
+        // Формируем HTML с эмодзи (то же, что основной статус, но без [#ID])
+        const clientSettings = await SupabaseClient.getClientSettings(projectId);
+        const defaults = getDefaultClientSettings();
+        const format = clientSettings.format_status || defaults.format_status;
+        let statusText = formatStatusForClient(activeBlocks, statusMap, format);
+        statusText = statusText.replace(/\s*\[#\d+(?:,\s*#?\d+)*\]/g, '');
 
-        // Отправляем как monospace чтобы было удобно копировать
-        const escaped = plainText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        await ctx.reply(`<pre>${escaped}</pre>`, { parse_mode: 'HTML' });
+        const copyMessage = `📋 ${project.project_name}\n\n${statusText}`;
+
+        if (copyMessage.length <= 4000) {
+          await ctx.reply(copyMessage, { parse_mode: 'HTML' });
+        } else {
+          const parts = this.splitMessage(copyMessage, 4000);
+          for (const part of parts) {
+            await ctx.reply(part, { parse_mode: 'HTML' });
+          }
+        }
       } catch (error) {
         logger.error('Error in copy_status callback:', error);
         await ctx.reply('❌ Ошибка при копировании статуса');
@@ -2072,13 +2071,16 @@ export class SmartBot {
         const messageText = this.extractMessageWithLinks(message);
         const chatName = 'title' in message.chat ? message.chat.title : '';
 
+        const tgMsgId = message.message_id;
+        logger.info(`Saving message from chat ${chatId}, telegram_message_id=${tgMsgId}`);
+
         await SupabaseClient.saveMessage({
           telegram_chat_id: chatId,
           sender_id: senderId,
           message_text: messageText,
           chat_name_tg: chatName || '',
           is_analyzed: false,
-          telegram_message_id: message.message_id
+          telegram_message_id: tgMsgId
         });
 
         logger.info(`Message collected from chat ${chatId}`);
@@ -2143,9 +2145,25 @@ export class SmartBot {
           const msgLower = userMessage.toLowerCase();
           let projectsToShow = userProjects;
 
-          const mentionedProject = userProjects.find((p: any) =>
-            msgLower.includes(p.project_name?.toLowerCase())
-          );
+          // Нечёткий поиск: разбиваем название проекта на слова, ищем совпадение по ключевым словам
+          // Нормализация: латиница ↔ кириллица для частых случаев (VK→вк, CULT→культ)
+          const normalize = (s: string) => s
+            .replace(/vk/gi, 'вк').replace(/cult/gi, 'культ')
+            .replace(/\s+/g, ' ').trim();
+          const msgNorm = normalize(msgLower);
+
+          const mentionedProject = userProjects.find((p: any) => {
+            const name = p.project_name?.toLowerCase() || '';
+            const nameNorm = normalize(name);
+            // Точное совпадение по полному имени
+            if (msgLower.includes(name) || msgNorm.includes(nameNorm)) return true;
+            // Нечёткий: берём значимые слова (>1 символа) из названия проекта
+            const nameWords = nameNorm.split(/[\s\/\-\|,]+/).filter((w: string) => w.length > 1);
+            if (nameWords.length === 0) return false;
+            // Считаем сколько слов из названия встречаются в сообщении
+            const matchCount = nameWords.filter((w: string) => msgNorm.includes(w)).length;
+            return matchCount >= 2; // минимум 2 слова совпадают
+          });
           if (mentionedProject) {
             projectsToShow = [mentionedProject];
           }
@@ -2155,6 +2173,12 @@ export class SmartBot {
           }
 
           await this.sendStatusForProjects(ctx, projectsToShow);
+
+          // Запоминаем контекст проекта для последующих вопросов
+          if (projectsToShow.length === 1) {
+            this.userContext.set(userId, { projectId: projectsToShow[0].project_id, timestamp: Date.now() });
+            logger.info(`Context set after status: project ${projectsToShow[0].project_id} (${projectsToShow[0].project_name})`);
+          }
           return;
         }
 
@@ -2251,7 +2275,9 @@ export class SmartBot {
               await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
             } catch (e) {}
 
-            await ctx.reply(answer);
+            // Если ответ содержит HTML-ссылки, отправляем как HTML
+            const hasLinks = answer.includes('<a href=');
+            await ctx.reply(answer, hasLinks ? { parse_mode: 'HTML' } : {});
             return;
           } catch (error: any) {
             logger.error('Error answering question from conversation:', error);
@@ -2364,18 +2390,13 @@ export class SmartBot {
 
         let statusText = formatStatusForClient(activeBlocks, statusMap, format);
 
-        const refIds = [...statusText.matchAll(/\[#(\d+)/g)].map(m => parseInt(m[1], 10));
-        const linkMap = await SupabaseClient.buildLinkMapByIds(refIds);
-        statusText = resolveMessageLinksHtml(statusText, linkMap);
+        // Убираем ссылки на сообщения [#34700] — в статусе они не нужны
+        statusText = statusText.replace(/\s*\[#\d+(?:,\s*#?\d+)*\]/g, '');
 
         const statusMessage = `📋 ${project.project_name}\n\n${statusText}`;
 
-        // Кнопки "Копировать" и "Отправить клиенту"
         const buttons = Markup.inlineKeyboard([
-          [
-            Markup.button.callback('📋 Копировать', `copy_status:${project.project_id}`),
-            Markup.button.callback('📤 Отправить клиенту', `client_status:${project.project_id}`),
-          ],
+          Markup.button.callback('📤 Отправить клиенту', `client_status:${project.project_id}`),
         ]);
 
         if (statusMessage.length <= 4000) {
@@ -2464,11 +2485,20 @@ export class SmartBot {
 
         if (!result.needsMore) {
           logger.info(`Found answer using ${messages.length} messages`);
+          // Резолвим [#ID] в кликабельные ссылки
+          const linkMap = SupabaseClient.buildMessageLinkMap(messages);
+          if (linkMap.size > 0) {
+            return resolveMessageLinksHtml(result.answer, linkMap);
+          }
           return result.answer;
         }
 
         if (messages.length < currentLimit) {
           logger.info(`No more messages available (${messages.length} total)`);
+          const linkMap = SupabaseClient.buildMessageLinkMap(messages);
+          if (linkMap.size > 0) {
+            return resolveMessageLinksHtml(result.answer, linkMap);
+          }
           return result.answer;
         }
 

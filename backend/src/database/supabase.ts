@@ -22,11 +22,17 @@ export class SupabaseClient {
     is_analyzed: boolean;
     telegram_message_id?: number;
   }) {
+    logger.info(`saveMessage: telegram_message_id=${data.telegram_message_id} (type: ${typeof data.telegram_message_id})`);
+
     const { data: result, error } = await supabase
       .from('messages')
-      .insert([data]);
+      .insert([data])
+      .select('message_id, telegram_message_id');
 
     if (error) throw error;
+    if (result && result[0]) {
+      logger.info(`saveMessage: saved as #${result[0].message_id}, tg_msg_id=${result[0].telegram_message_id}`);
+    }
     return result;
   }
 

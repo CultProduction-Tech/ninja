@@ -138,7 +138,7 @@ async function sendStatusToProducer(project: any) {
 
     // Загружаем ручные статусы из дашборда
     const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
-    const MANUAL_STATUS_MAX_AGE_DAYS = 5;
+    const MANUAL_STATUS_MAX_AGE_DAYS = 3;
 
     if (manualStatuses.size > 0) {
       logger.info(`${manualStatuses.size} blocks have manual statuses from dashboard:`);
@@ -200,10 +200,8 @@ async function sendStatusToProducer(project: any) {
       return;
     }
 
-    // Резолвим [#id] теги в ссылки на сообщения
-    const allMessages = await SupabaseClient.getLastMessagesForProject(project.project_id, 200);
-    const linkMap = SupabaseClient.buildMessageLinkMap(allMessages);
-    updateText = resolveMessageLinks(updateText, linkMap);
+    // Убираем ссылки на сообщения [#34700] — в статусе они не нужны
+    updateText = updateText.replace(/\s*\[#\d+(?:,\s*#?\d+)*\]/g, '');
 
     let recipientTgId: string;
     let recipientInfo: string;
@@ -242,7 +240,7 @@ async function sendStatusToProducer(project: any) {
       const clientText = formatStatusForClient(activeBlocks, statusMap, 'короткий', weekendPolicy.urgentOnly);
 
       if (clientText && clientText.trim() !== '') {
-        clientStatusText = resolveMessageLinks(clientText, linkMap);
+        clientStatusText = clientText.replace(/\s*\[#\d+(?:,\s*#?\d+)*\]/g, '');
 
         if (TEST_MODE) {
           clientTgId = TEST_TELEGRAM_ID;
@@ -379,26 +377,26 @@ export function formatStatusForClient(
 
   const sections: string[] = [];
 
-  // Маркер по категории (кастомные эмодзи Cult или стандартные кружочки)
-  const customGreen = process.env.CUSTOM_EMOJI_GREEN;
-  const customRed = process.env.CUSTOM_EMOJI_RED;
-  const customYellow = process.env.CUSTOM_EMOJI_YELLOW;
-  const customWhite = process.env.CUSTOM_EMOJI_WHITE;
-
+  // Маркер по категории — стандартные кружочки
   const marker = (cat: string) => {
-    const useCustom = customGreen && customRed && customYellow;
     switch (cat) {
-      case 'approved':
-        return useCustom ? `<tg-emoji emoji-id="${customGreen}">🟢</tg-emoji>` : '🟢';
-      case 'important':
-        return useCustom ? `<tg-emoji emoji-id="${customRed}">🔴</tg-emoji>` : '🔴';
+      case 'approved': return '🟢';
+      case 'important': return '🔴';
       case 'dates':
-      case 'in_progress':
-        return useCustom ? `<tg-emoji emoji-id="${customYellow}">🟡</tg-emoji>` : '🟡';
-      default:
-        return useCustom && customWhite ? `<tg-emoji emoji-id="${customWhite}">⚪</tg-emoji>` : '⚪';
+      case 'in_progress': return '🟡';
+      default: return '⚪';
     }
   };
+
+  // Кастомные эмодзи для заголовков фаз
+  const customPre = process.env.CUSTOM_EMOJI_YELLOW; // 🩷 пре-продакшн
+  const customPost = process.env.CUSTOM_EMOJI_RED;   // 🖤 пост-продакшн
+  const preHeader = customPre
+    ? `<tg-emoji emoji-id="${customPre}">🩷</tg-emoji> Пре-продакшн:`
+    : '🎬 Пре-продакшн:';
+  const postHeader = customPost
+    ? `<tg-emoji emoji-id="${customPost}">🖤</tg-emoji> Пост-продакшн:`
+    : '🎞️ Пост-продакшн:';
 
   if (format === 'короткий') {
     // Короткий: нумерованный список, одна строка на блок
@@ -456,9 +454,9 @@ export function formatStatusForClient(
     if (preStatuses.length > 0 && postStatuses.length > 0) {
       // Есть обе фазы — добавляем заголовки
       const preText = formatPhase(preStatuses);
-      if (preText) sections.push('🎬 Пре-продакшн:\n\n' + preText);
+      if (preText) sections.push(preHeader + '\n\n' + preText);
       const postText = formatPhase(postStatuses);
-      if (postText) sections.push('🎞️ Пост-продакшн:\n\n' + postText);
+      if (postText) sections.push(postHeader + '\n\n' + postText);
     } else {
       // Одна фаза — без заголовков
       const allText = formatPhase(statuses);
