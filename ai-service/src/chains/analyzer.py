@@ -196,11 +196,15 @@ confidence — уверенность что это профессиональн
             block_name = block.name if hasattr(block, 'name') else block.get('name')
             block_type = block.type if hasattr(block, 'type') else block.get('type')
             block_id = block.id if hasattr(block, 'id') else block.get('id')
-            current_status = block.currentStatus if hasattr(block, 'currentStatus') else block.get('currentStatus')
-
             logger.info(f"Analyzing block: {block_name} ({block_type})")
 
-            prompt = self._create_block_prompt(block_name, block_type, current_status, conversation)
+            prompt = self._create_block_prompt(block_name, block_type, conversation)
+
+            # Debug: log full prompt for scenario-like blocks
+            if any(kw in block_name.lower() for kw in ['сценар', 'костюм', 'реквизит']):
+                logger.info(f"=== DEBUG PROMPT for {block_name} ===")
+                logger.info(f"PROMPT:\n{prompt[:2000]}")
+                logger.info(f"=== END DEBUG PROMPT ===")
 
             glossary_text = self._build_glossary_section()
 
@@ -224,8 +228,16 @@ confidence — уверенность что это профессиональн
 
                 result_key = block_id if block_id else block_name
 
-                cleaned = self._postprocess_status(response.content)
+                raw_response = response.content
+                cleaned = self._postprocess_status(raw_response)
                 results[result_key] = cleaned
+
+                # Debug: log raw vs cleaned for problematic blocks
+                if any(kw in block_name.lower() for kw in ['сценар', 'костюм', 'реквизит']):
+                    logger.info(f"=== DEBUG RESPONSE for {block_name} ===")
+                    logger.info(f"RAW: {raw_response}")
+                    logger.info(f"CLEANED: {cleaned}")
+                    logger.info(f"=== END DEBUG RESPONSE ===")
 
                 logger.info(f"Analyzed {block_name}: {cleaned[:100]}... [key: {result_key}]")
 
@@ -282,7 +294,6 @@ confidence — уверенность что это профессиональн
         self,
         block_name: str,
         block_type: str,
-        current_status: Optional[str],
         conversation: str
     ) -> str:
         # Для стандартных блоков переводим английское имя на русский
@@ -317,8 +328,6 @@ confidence — уверенность что это профессиональн
 
         prompt = f"""БЛОК: "{display_name}"
 {episode_instruction}
-Текущий статус в БД: {current_status or 'не указан'}
-
 ПЕРЕПИСКА (от НОВЫХ к старым):
 {conversation}
 
@@ -326,21 +335,22 @@ confidence — уверенность что это профессиональн
 
 ПРАВИЛА:
 1. Переписка от НОВЫХ к СТАРЫМ. Бери инфо из САМЫХ СВЕЖИХ сообщений.
-2. Новое ВСЕГДА перекрывает старое: "ждем ОС" → потом "клиент одобрил" = "Согласовано"
-3. Пиши ТОЛЬКО итог на сейчас. НЕ перечисляй историю.
+2. КРИТИЧНО: Новое ВСЕГДА перекрывает старое. Если сначала "ждем фидбек", а потом "можно забирать" или "получили ок" — итоговый статус = Согласовано. НЕ пиши старый статус!
+3. Пиши ТОЛЬКО итог на СЕЙЧАС. НЕ перечисляй историю.
 4. Максимум 2 буллета через "- ". Короткие предложения.
 5. В конце каждого буллета — тег [#число] из переписки.
 6. Блок не упоминается → ответь: информация отсутствует
-7. НЕ путай "отправили на проверку" с "согласовано". Согласовано = клиент явно одобрил.
+7. Следующие фразы означают СОГЛАСОВАНО: "можно забирать", "получили ок", "ок от клиента", "согласовано", "утверждено", "одобрено". Если видишь их — пиши "Согласовано".
 8. Без markdown. Без заголовков. Только факты.
-9. Если в переписке обсуждаются ПОСТ-продакшн блоки (выпуски, монтаж, графика, анимация, музыка), а этот блок — ПРЕ-продакшн (сценарий, кастинг, костюмы, локация, реквизит) и в переписке нет ЯВНЫХ проблем с ним, значит он уже утверждён. Пиши: "Утверждено" (со ссылкой на ближайшее релевантное сообщение).
+9. Если в переписке обсуждаются ПОСТ-продакшн блоки (выпуски, монтаж, графика, анимация, музыка), а этот блок — ПРЕ-продакшн (сценарий, кастинг, костюмы, локация, реквизит) и нет ЯВНЫХ проблем с ним — он уже утверждён.
 
 ПРИМЕРЫ:
 Блок не упоминается → информация отсутствует
-Ждём ОС → - Ждем ОС от клиента, обещал посмотреть 12 января [#102]
-Одобрено → - Согласовано клиентом [#55]
+Ждём ОС → - Ждем ОС от клиента [#102]
+Одобрено → - Согласовано [#55]
 В работе → - В работе, первая версия к 18:00 [#200]
-Пре-блок при активном посте → - Утверждено [#200]
+Сначала "ждем фидбек" потом "можно забирать" → - Согласовано [#200]
+Сначала "ждем ОС" потом "получили ок" → - Согласовано [#201]
 
 Ответ:"""
 

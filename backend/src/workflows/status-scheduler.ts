@@ -136,21 +136,30 @@ async function sendStatusToProducer(project: any) {
       return;
     }
 
-    // Загружаем ручные статусы из дашборда (приоритет над AI)
+    // Загружаем ручные статусы из дашборда
     const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
+    const MANUAL_STATUS_MAX_AGE_DAYS = 5;
 
     if (manualStatuses.size > 0) {
-      logger.info(`${manualStatuses.size} blocks have manual statuses from dashboard`);
+      logger.info(`${manualStatuses.size} blocks have manual statuses from dashboard:`);
+      for (const [key, manual] of manualStatuses) {
+        const ageDays = (Date.now() - new Date(manual.changedAt).getTime()) / 86400000;
+        logger.info(`  MANUAL: ${key} → "${manual.status}" (age: ${ageDays.toFixed(1)}d, fresh: ${ageDays < MANUAL_STATUS_MAX_AGE_DAYS})`);
+      }
     }
 
     // AI-статусы из единого хранилища custom_block_statuses
     let allStatuses = await SupabaseClient.getCustomBlockStatuses(project.project_id);
 
-    // Блоки без статуса (ни ручного, ни AI) — анализируем на лету
+    // Блоки без статуса — анализируем на лету
+    // Ручной статус приоритетнее только если свежий (< 5 дней)
     const missingBlocks = activeBlocks.filter(block => {
       const blockId = block.id || block.name;
       const manual = manualStatuses.get(blockId);
-      if (manual && manual.status !== 'Не определён') return false; // есть осмысленный ручной — не нужен AI
+      if (manual && manual.status !== 'Не определён') {
+        const ageDays = (Date.now() - new Date(manual.changedAt).getTime()) / 86400000;
+        if (ageDays < MANUAL_STATUS_MAX_AGE_DAYS) return false; // свежий ручной — не нужен AI
+      }
       return !allStatuses.find(s => s.block_id === blockId && s.status_analysis);
     });
 
@@ -160,19 +169,22 @@ async function sendStatusToProducer(project: any) {
       allStatuses = [...allStatuses, ...newStatuses];
     }
 
-    // Собираем итоговую карту статусов: ручные > AI
+    // Собираем итоговую карту статусов: свежий ручной > AI > устаревший ручной
     const statusMap: Record<string, string> = {};
     for (const block of activeBlocks) {
       const blockKey = block.id || block.name;
 
-      // Ручной статус из дашборда — приоритет (кроме "Не определён")
+      // Ручной статус — приоритет только если свежий (< 5 дней)
       const manual = manualStatuses.get(blockKey);
       if (manual && manual.status !== 'Не определён') {
-        statusMap[blockKey] = manual.status;
-        continue;
+        const ageDays = (Date.now() - new Date(manual.changedAt).getTime()) / 86400000;
+        if (ageDays < MANUAL_STATUS_MAX_AGE_DAYS) {
+          statusMap[blockKey] = manual.status;
+          continue;
+        }
       }
 
-      // Иначе — AI-статус
+      // AI-статус
       const status = allStatuses.find(s => s.block_id === blockKey);
       if (status && status.status_analysis) {
         statusMap[blockKey] = status.status_analysis;

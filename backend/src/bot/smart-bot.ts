@@ -11,6 +11,14 @@ import {
   getBlockEmoji,
 } from '../shared/block-registry';
 
+const MANUAL_STATUS_MAX_AGE_DAYS = 5;
+
+function isManualStatusFresh(manual: { status: string; changedAt: string } | undefined): boolean {
+  if (!manual || manual.status === 'Не определён') return false;
+  const ageDays = (Date.now() - new Date(manual.changedAt).getTime()) / 86400000;
+  return ageDays < MANUAL_STATUS_MAX_AGE_DAYS;
+}
+
 interface ConversationMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -709,10 +717,10 @@ export class SmartBot {
         for (const block of activeBlocks) {
           const blockKey = block.id || block.name;
 
-          // Ручной статус — приоритет (кроме "Не определён")
+          // Ручной статус — приоритет только если свежий (< 5 дней)
           const manual = manualStatuses.get(blockKey);
-          if (manual && manual.status !== 'Не определён') {
-            statusMap[blockKey] = manual.status;
+          if (isManualStatusFresh(manual)) {
+            statusMap[blockKey] = manual!.status;
             continue;
           }
 
@@ -1615,8 +1623,8 @@ export class SmartBot {
         for (const block of activeBlocks) {
           const blockKey = block.id || block.name;
           const manual = manualStatuses.get(blockKey);
-          if (manual && manual.status !== 'Не определён') {
-            statusMap[blockKey] = manual.status;
+          if (isManualStatusFresh(manual)) {
+            statusMap[blockKey] = manual!.status;
             continue;
           }
           const status = allStatuses.find((s: any) => s.block_id === blockKey);
@@ -1744,8 +1752,8 @@ export class SmartBot {
           for (const block of activeBlocks) {
             const blockKey = block.id || block.name;
             const manual = manualStatuses.get(blockKey);
-            if (manual && manual.status !== 'Не определён') {
-              statusMap[blockKey] = manual.status;
+            if (isManualStatusFresh(manual)) {
+              statusMap[blockKey] = manual!.status;
               continue;
             }
             const status = allStatuses.find((s: any) => s.block_id === blockKey);
@@ -1893,8 +1901,8 @@ export class SmartBot {
         for (const block of activeBlocks) {
           const blockKey = block.id || block.name;
           const manual = manualStatuses.get(blockKey);
-          if (manual && manual.status !== 'Не определён') {
-            statusMap[blockKey] = manual.status;
+          if (isManualStatusFresh(manual)) {
+            statusMap[blockKey] = manual!.status;
             continue;
           }
           const status = allStatuses.find((s: any) => s.block_id === blockKey);
@@ -1951,8 +1959,8 @@ export class SmartBot {
         for (const block of activeBlocks) {
           const blockKey = block.id || block.name;
           const manual = manualStatuses.get(blockKey);
-          if (manual && manual.status !== 'Не определён') {
-            statusMap[blockKey] = manual.status;
+          if (isManualStatusFresh(manual)) {
+            statusMap[blockKey] = manual!.status;
             continue;
           }
           const status = allStatuses.find((s: any) => s.block_id === blockKey);
@@ -2334,17 +2342,22 @@ export class SmartBot {
 
         const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
         const allStatuses = await SupabaseClient.getCustomBlockStatuses(project.project_id);
-
         const statusMap: Record<string, string> = {};
         for (const block of activeBlocks) {
           const blockKey = block.id || block.name;
           const manual = manualStatuses.get(blockKey);
-          if (manual && manual.status !== 'Не определён') {
-            statusMap[blockKey] = manual.status;
+          if (isManualStatusFresh(manual)) {
+            logger.info(`  [statusMap] ${blockKey} → MANUAL: "${manual!.status}"`);
+            statusMap[blockKey] = manual!.status;
             continue;
+          }
+          if (manual) {
+            const ageDays = (Date.now() - new Date(manual.changedAt).getTime()) / 86400000;
+            logger.info(`  [statusMap] ${blockKey} → MANUAL EXPIRED (${ageDays.toFixed(1)}d): "${manual.status}" — using AI`);
           }
           const status = allStatuses.find((s: any) => s.block_id === blockKey);
           if (status?.status_analysis) {
+            logger.info(`  [statusMap] ${blockKey} → AI: "${status.status_analysis.substring(0, 60)}..."`);
             statusMap[blockKey] = status.status_analysis;
           }
         }

@@ -99,29 +99,39 @@ async function processChat(chat: any, messageLimit: number, dryRun: boolean = fa
 
     // Загружаем ручные статусы из дашборда
     const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
+    const MANUAL_STATUS_MAX_AGE_DAYS = 5;
 
-    // Фильтруем: блоки с осмысленным ручным статусом не отправляем на AI-анализ
+    // Фильтруем: блоки со свежим ручным статусом (< 5 дней) не отправляем на AI-анализ
     const blocksForAI = activeBlocks.filter(block => {
       const blockKey = block.id || block.name;
       const manual = manualStatuses.get(blockKey);
-      return !manual || manual.status === 'Не определён';
+      if (!manual || manual.status === 'Не определён') return true;
+      const ageDays = (Date.now() - new Date(manual.changedAt).getTime()) / 86400000;
+      if (ageDays >= MANUAL_STATUS_MAX_AGE_DAYS) {
+        logger.info(`Block ${block.name}: manual status expired (${ageDays.toFixed(1)}d old), sending to AI`);
+        return true;
+      }
+      return false;
     });
 
     if (manualStatuses.size > 0) {
-      logger.info(`${manualStatuses.size} blocks have manual statuses (skipping AI analysis for them)`);
+      logger.info(`${manualStatuses.size} blocks have manual statuses from dashboard`);
     }
 
-    // Собираем результаты: ручные статусы (кроме "Не определён") + AI-анализ
+    // Собираем результаты: свежие ручные статусы + AI-анализ
     const analysisResults: Record<string, string> = {};
 
-    // Сначала добавляем осмысленные ручные статусы
+    // Свежие ручные статусы (< 5 дней)
     for (const [blockKey, manual] of manualStatuses) {
       if (manual.status !== 'Не определён') {
-        analysisResults[blockKey] = manual.status;
+        const ageDays = (Date.now() - new Date(manual.changedAt).getTime()) / 86400000;
+        if (ageDays < MANUAL_STATUS_MAX_AGE_DAYS) {
+          analysisResults[blockKey] = manual.status;
+        }
       }
     }
 
-    // Затем анализируем остальные через AI
+    // Анализируем остальные через AI
     if (blocksForAI.length > 0) {
       logger.info(`Formatting ${messages.length} messages with user roles...`);
       const conversationText = await SupabaseClient.formatConversationWithRoles(messages);
@@ -137,7 +147,7 @@ async function processChat(chat: any, messageLimit: number, dryRun: boolean = fa
 
       Object.assign(analysisResults, aiResults);
     } else {
-      logger.info(`All blocks have manual statuses, skipping AI analysis`);
+      logger.info(`All blocks have fresh manual statuses, skipping AI analysis`);
     }
 
     if (dryRun) {
