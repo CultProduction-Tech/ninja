@@ -301,7 +301,8 @@ export class SupabaseClient {
     const { data, error } = await supabase
       .from('projects')
       .select('*')
-      .or(`producer_id.eq.${producerId},producer2.eq.${producerId},producer3.eq.${producerId}`);
+      .or(`producer_id.eq.${producerId},producer2.eq.${producerId},producer3.eq.${producerId}`)
+      .neq('status', 'finished');
 
     if (error) throw error;
     return data || [];
@@ -334,7 +335,8 @@ export class SupabaseClient {
     const { data, error } = await supabase
       .from('projects')
       .select('*')
-      .or(`client_id.eq.${clientId},client2.eq.${clientId},client3.eq.${clientId}`);
+      .or(`client_id.eq.${clientId},client2.eq.${clientId},client3.eq.${clientId}`)
+      .neq('status', 'finished');
 
     if (error) throw error;
     return data || [];
