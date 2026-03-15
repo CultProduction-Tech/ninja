@@ -63,19 +63,24 @@ export async function runGlossaryDiscovery() {
 
     logger.info(`Glossary discovery complete: ${totalNew} new terms added across all projects`);
 
-    // Уведомляем админа если найдены новые термины
+    // Уведомляем approvers если найдены новые термины
     if (totalNew > 0) {
-      try {
-        const adminTgId = process.env.TEST_TELEGRAM_ID || '489599665';
-        const smartBot = getSmartBot();
-        await smartBot.sendDirectMessage(
-          adminTgId,
-          `📚 Глоссарий обновлён автоматически!\n\n` +
-          `Найдено новых терминов: ${totalNew}\n` +
-          `Используйте /admin_glossary для просмотра и одобрения.`
-        );
-      } catch (notifyError) {
-        logger.warn('Failed to notify admin about glossary update:', notifyError);
+      const approverIds = [
+        process.env.TEST_TELEGRAM_ID || '489599665',
+        '121335318', // Денис
+      ];
+      const smartBot = getSmartBot();
+      for (const tgId of approverIds) {
+        try {
+          await smartBot.sendDirectMessage(
+            tgId,
+            `📚 Глоссарий обновлён автоматически!\n\n` +
+            `Найдено новых терминов: ${totalNew}\n` +
+            `Используйте /admin_glossary для просмотра и одобрения.`
+          );
+        } catch (notifyError) {
+          logger.warn(`Failed to notify approver ${tgId} about glossary update:`, notifyError);
+        }
       }
     }
   } catch (error) {

@@ -532,7 +532,8 @@ export class SupabaseClient {
         *,
         producer:producer_id (*),
         client:client_id (*)
-      `);
+      `)
+      .neq('status', 'finished');
 
     if (error) {
       logger.error('Error getting all projects:', error);

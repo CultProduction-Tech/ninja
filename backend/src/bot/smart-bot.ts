@@ -13,6 +13,121 @@ import {
 
 const MANUAL_STATUS_MAX_AGE_DAYS = 3;
 
+// Двусторонняя транслитерация для fuzzy-поиска проектов
+const LAT_TO_CYR: Record<string, string> = {
+  a: 'а', b: 'б', v: 'в', g: 'г', d: 'д', e: 'е', z: 'з', i: 'и',
+  k: 'к', l: 'л', m: 'м', n: 'н', o: 'о', p: 'п', r: 'р', s: 'с',
+  t: 'т', u: 'у', f: 'ф', h: 'х', c: 'ц', y: 'й', w: 'в', j: 'дж', x: 'кс',
+};
+const CYR_TO_LAT: Record<string, string> = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'yo', ж: 'zh',
+  з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o',
+  п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'ts',
+  ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
+};
+
+function toCyrillic(s: string): string {
+  return s.replace(/sh|sch|ch|zh|yu|ya|yo|ts/gi, (m) => {
+    const map: Record<string, string> = {
+      sh: 'ш', sch: 'щ', ch: 'ч', zh: 'ж', yu: 'ю', ya: 'я', yo: 'ё', ts: 'ц',
+    };
+    return map[m.toLowerCase()] || m;
+  }).split('').map(c => LAT_TO_CYR[c] || c).join('');
+}
+
+function toLatin(s: string): string {
+  return s.split('').map(c => CYR_TO_LAT[c] || c).join('');
+}
+
+function splitWords(s: string): string[] {
+  return s.replace(/[\s\/\-\|,x×:;()]+/g, ' ').trim().split(/\s+/).filter(w => w.length > 1);
+}
+
+// Расстояние Левенштейна для fuzzy-сравнения
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => i === 0 ? j : j === 0 ? i : 0)
+  );
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i-1] === b[j-1]
+        ? dp[i-1][j-1]
+        : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+  return dp[m][n];
+}
+
+function cleanForCompare(s: string): string {
+  return s.replace(/[ьъ]/g, '');
+}
+
+function isSimilar(a: string, b: string): boolean {
+  if (a.includes(b) || b.includes(a)) return true;
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen <= 2) return a === b;
+  const ac = cleanForCompare(a), bc = cleanForCompare(b);
+  if (ac.includes(bc) || bc.includes(ac)) return true;
+  const maxC = Math.max(ac.length, bc.length);
+  if (maxC > 2 && levenshtein(ac, bc) / maxC <= 0.45) return true;
+  return false;
+}
+
+// Проверяет похожесть слова запроса на слово из названия проекта (все комбинации транслитераций)
+function isWordMatch(query: string, nameWord: string): boolean {
+  const variants = [
+    [query, nameWord],
+    [toCyrillic(query), toCyrillic(nameWord)],
+    [toLatin(query), toLatin(nameWord)],
+    [toCyrillic(query), nameWord],
+    [query, toCyrillic(nameWord)],
+    [toLatin(query), nameWord],
+    [query, toLatin(nameWord)],
+  ];
+  return variants.some(([a, b]) => isSimilar(a, b));
+}
+
+// Слова-команды, которые не являются частью названия проекта
+const STOP_WORDS = new Set([
+  'статус', 'покажи', 'дай', 'скинь', 'проект', 'проекта', 'проекту',
+  'по', 'для', 'мне', 'пожалуйста', 'плиз', 'status',
+]);
+
+function extractQuery(message: string): string[] {
+  return splitWords(message.toLowerCase()).filter(w => !STOP_WORDS.has(w));
+}
+
+function findProjectByFuzzy(message: string, projects: any[]): any | undefined {
+  const msg = message.toLowerCase();
+  const queryWords = extractQuery(msg);
+  if (queryWords.length === 0) return undefined;
+
+  let bestMatch: any = undefined;
+  let bestScore = 0;
+
+  for (const p of projects) {
+    const name = p.project_name?.toLowerCase() || '';
+
+    // Точное вхождение полного имени
+    if (msg.includes(name)) return p;
+
+    const nameWords = splitWords(name);
+
+    // Считаем сколько слов запроса совпадает со словами названия
+    let matchCount = 0;
+    for (const q of queryWords) {
+      if (nameWords.some(nw => isWordMatch(q, nw))) matchCount++;
+    }
+
+    // Все слова запроса должны совпасть
+    if (matchCount === queryWords.length && matchCount > bestScore) {
+      bestScore = matchCount;
+      bestMatch = p;
+    }
+  }
+
+  return bestMatch;
+}
+
 function isManualStatusFresh(manual: { status: string; changedAt: string } | undefined): boolean {
   if (!manual || manual.status === 'Не определён') return false;
   const ageDays = (Date.now() - new Date(manual.changedAt).getTime()) / 86400000;
@@ -1213,13 +1328,16 @@ export class SmartBot {
     });
 
     // === GLOSSARY COMMANDS ===
+    const GLOSSARY_APPROVERS = new Set([
+      process.env.TEST_TELEGRAM_ID || '489599665',
+      '121335318', // Денис
+    ]);
 
     this.bot.command('admin_glossary', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
 
-        if (userId !== TEST_TELEGRAM_ID) {
+        if (!GLOSSARY_APPROVERS.has(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -1264,9 +1382,9 @@ export class SmartBot {
     this.bot.command('admin_glossary_discover', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
 
-        if (userId !== TEST_TELEGRAM_ID) {
+
+        if (!GLOSSARY_APPROVERS.has(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -1337,9 +1455,9 @@ export class SmartBot {
     this.bot.command('admin_glossary_approve_all', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
 
-        if (userId !== TEST_TELEGRAM_ID) {
+
+        if (!GLOSSARY_APPROVERS.has(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -1378,8 +1496,8 @@ export class SmartBot {
     this.bot.command('admin_emoji', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
-        if (userId !== TEST_TELEGRAM_ID) {
+
+        if (!GLOSSARY_APPROVERS.has(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -1397,9 +1515,9 @@ export class SmartBot {
     this.bot.command('admin_glossary_approve', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
 
-        if (userId !== TEST_TELEGRAM_ID) {
+
+        if (!GLOSSARY_APPROVERS.has(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -1430,9 +1548,9 @@ export class SmartBot {
     this.bot.command('admin_glossary_reject', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
 
-        if (userId !== TEST_TELEGRAM_ID) {
+
+        if (!GLOSSARY_APPROVERS.has(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -1463,9 +1581,9 @@ export class SmartBot {
     this.bot.command('admin_glossary_edit', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
 
-        if (userId !== TEST_TELEGRAM_ID) {
+
+        if (!GLOSSARY_APPROVERS.has(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -2149,25 +2267,7 @@ export class SmartBot {
           const msgLower = userMessage.toLowerCase();
           let projectsToShow = userProjects;
 
-          // Нечёткий поиск: разбиваем название проекта на слова, ищем совпадение по ключевым словам
-          // Нормализация: латиница ↔ кириллица для частых случаев (VK→вк, CULT→культ)
-          const normalize = (s: string) => s
-            .replace(/vk/gi, 'вк').replace(/cult/gi, 'культ')
-            .replace(/\s+/g, ' ').trim();
-          const msgNorm = normalize(msgLower);
-
-          const mentionedProject = userProjects.find((p: any) => {
-            const name = p.project_name?.toLowerCase() || '';
-            const nameNorm = normalize(name);
-            // Точное совпадение по полному имени
-            if (msgLower.includes(name) || msgNorm.includes(nameNorm)) return true;
-            // Нечёткий: берём значимые слова (>1 символа) из названия проекта
-            const nameWords = nameNorm.split(/[\s\/\-\|,]+/).filter((w: string) => w.length > 1);
-            if (nameWords.length === 0) return false;
-            // Считаем сколько слов из названия встречаются в сообщении
-            const matchCount = nameWords.filter((w: string) => msgNorm.includes(w)).length;
-            return matchCount >= 2; // минимум 2 слова совпадают
-          });
+          const mentionedProject = findProjectByFuzzy(msgLower, userProjects);
           if (mentionedProject) {
             projectsToShow = [mentionedProject];
           }
@@ -2209,9 +2309,7 @@ export class SmartBot {
 
         // Из упоминания проекта в тексте
         if (!context || (Date.now() - context.timestamp) >= TEN_MINUTES) {
-          const mentionedProject = userProjects.find((p: any) =>
-            userMessage.toLowerCase().includes(p.project_name?.toLowerCase())
-          );
+          const mentionedProject = findProjectByFuzzy(userMessage.toLowerCase(), userProjects);
           if (mentionedProject) {
             context = { projectId: mentionedProject.project_id, timestamp: Date.now() };
             this.userContext.set(userId, context);
