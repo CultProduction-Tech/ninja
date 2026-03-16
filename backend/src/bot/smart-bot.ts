@@ -1,4 +1,5 @@
 import { Telegraf, Context, Markup } from 'telegraf';
+import axios from 'axios';
 import { logger } from '../utils/logger';
 import { AIServiceClient } from '../services/ai-client';
 import { SupabaseClient, getDefaultClientSettings } from '../database/supabase';
@@ -2418,7 +2419,65 @@ export class SmartBot {
     });
 
     this.bot.on('voice', async (ctx) => {
-      await ctx.reply('Обработка голосовых сообщений скоро будет доступна.');
+      if (!ctx.from || ctx.chat?.type !== 'private') return;
+
+      const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+      if (!OPENAI_API_KEY) {
+        logger.warn('OPENAI_API_KEY not set, voice messages disabled');
+        await ctx.reply('Голосовые сообщения пока не подключены.');
+        return;
+      }
+
+      try {
+        await ctx.sendChatAction('typing');
+
+        const fileId = ctx.message.voice.file_id;
+        const file = await ctx.telegram.getFile(fileId);
+        const fileUrl = `https://api.telegram.org/file/bot${this.bot.telegram.token}/${file.file_path}`;
+
+        const audioResponse = await axios.get(fileUrl, { responseType: 'arraybuffer' });
+        const audioBuffer = Buffer.from(audioResponse.data);
+
+        const FormData = (await import('form-data')).default;
+        const form = new FormData();
+        form.append('file', audioBuffer, { filename: 'voice.ogg', contentType: 'audio/ogg' });
+        form.append('model', 'whisper-1');
+        form.append('language', 'ru');
+
+        const whisperResponse = await axios.post(
+          'https://api.openai.com/v1/audio/transcriptions',
+          form,
+          {
+            headers: {
+              'Authorization': `Bearer ${OPENAI_API_KEY}`,
+              ...form.getHeaders(),
+            },
+            timeout: 30000,
+          }
+        );
+
+        const transcribedText = whisperResponse.data?.text?.trim();
+        if (!transcribedText) {
+          await ctx.reply('Не удалось распознать голосовое сообщение.');
+          return;
+        }
+
+        logger.info(`Voice transcribed for user ${ctx.from.id}: "${transcribedText}"`);
+        await ctx.reply(`🎤 "${transcribedText}"`);
+
+        await this.bot.handleUpdate({
+          ...ctx.update,
+          message: {
+            ...ctx.message,
+            text: transcribedText,
+            voice: undefined as any,
+            entities: [],
+          },
+        });
+      } catch (error: any) {
+        logger.error('Voice transcription error:', error?.response?.data || error.message);
+        await ctx.reply('Ошибка при обработке голосового сообщения.');
+      }
     });
   }
 
