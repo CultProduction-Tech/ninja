@@ -111,16 +111,18 @@ function findProjectByFuzzy(message: string, projects: any[]): any | undefined {
     if (msg.includes(name)) return p;
 
     const nameWords = splitWords(name);
+    if (nameWords.length === 0) continue;
 
-    // Считаем сколько слов запроса совпадает со словами названия
-    let matchCount = 0;
-    for (const q of queryWords) {
-      if (nameWords.some(nw => isWordMatch(q, nw))) matchCount++;
+    // Считаем сколько слов названия проекта нашлось в запросе
+    let nameMatchCount = 0;
+    for (const nw of nameWords) {
+      if (queryWords.some(q => isWordMatch(q, nw))) nameMatchCount++;
     }
 
-    // Все слова запроса должны совпасть
-    if (matchCount === queryWords.length && matchCount > bestScore) {
-      bestScore = matchCount;
+    // Хотя бы одно значимое слово названия совпало
+    const score = nameMatchCount;
+    if (score > 0 && score > bestScore) {
+      bestScore = score;
       bestMatch = p;
     }
   }
@@ -2385,6 +2387,15 @@ export class SmartBot {
               await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
             } catch (e) {}
             // Fallthrough to general AI chat
+          }
+        }
+
+        // Сохраняем контекст проекта для следующего сообщения
+        if (userProjects && userProjects.length > 0) {
+          const mentionedAny = findProjectByFuzzy(userMessage.toLowerCase(), userProjects);
+          if (mentionedAny) {
+            this.userContext.set(userId, { projectId: mentionedAny.project_id, timestamp: Date.now() });
+            logger.info(`Context set from message: project ${mentionedAny.project_id} (${mentionedAny.project_name})`);
           }
         }
 
