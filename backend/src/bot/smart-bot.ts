@@ -140,6 +140,17 @@ interface ConversationMessage {
   timestamp: number;
 }
 
+const ADMIN_IDS: Set<string> = new Set(
+  (process.env.ADMIN_IDS || process.env.TEST_TELEGRAM_ID || '489599665')
+    .split(',')
+    .map(id => id.trim())
+    .filter(Boolean)
+);
+
+function isAdminUser(userId: string): boolean {
+  return ADMIN_IDS.has(userId);
+}
+
 export class SmartBot {
   private bot: Telegraf;
   private userContext: Map<string, { projectId: number; timestamp: number }> = new Map();
@@ -172,8 +183,7 @@ export class SmartBot {
     this.bot.command('help', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
-        const isAdmin = userId === TEST_TELEGRAM_ID;
+        const isAdmin = isAdminUser(userId);
 
         let message = '📖 Доступные команды:\n\n';
 
@@ -233,8 +243,7 @@ export class SmartBot {
         const userType = await this.getUserType(userId);
         logger.info(`User ${userId} type: ${userType}`);
 
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
-        const isAdmin = userId === TEST_TELEGRAM_ID;
+        const isAdmin = isAdminUser(userId);
 
         if (userType === 'producer' || isAdmin) {
           const projects = await this.getUserProjects(userId);
@@ -313,8 +322,7 @@ export class SmartBot {
         const searchQuery = ctx.message.text.split(' ').slice(1).join(' ').trim();
         logger.info(`Smart Bot: /status ${searchQuery ? `"${searchQuery}"` : '(all)'} from user ${userId}`);
 
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
-        const isAdmin = userId === TEST_TELEGRAM_ID;
+        const isAdmin = isAdminUser(userId);
 
         let projects;
 
@@ -367,8 +375,7 @@ export class SmartBot {
     this.bot.command('settings', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
-        const isAdmin = userId === TEST_TELEGRAM_ID;
+        const isAdmin = isAdminUser(userId);
         logger.info(`/settings from user ${userId}`);
 
         let projects;
@@ -557,9 +564,7 @@ export class SmartBot {
     this.bot.command('admin_projects', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
-
-        if (userId !== TEST_TELEGRAM_ID) {
+        if (!isAdminUser(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -608,9 +613,7 @@ export class SmartBot {
     this.bot.command('admin_settings', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
-
-        if (userId !== TEST_TELEGRAM_ID) {
+        if (!isAdminUser(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -670,9 +673,7 @@ export class SmartBot {
     this.bot.command('admin_settings_set', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
-
-        if (userId !== TEST_TELEGRAM_ID) {
+        if (!isAdminUser(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -782,9 +783,7 @@ export class SmartBot {
     this.bot.command('admin_status', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
-
-        if (userId !== TEST_TELEGRAM_ID) {
+        if (!isAdminUser(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -862,9 +861,7 @@ export class SmartBot {
     this.bot.command('admin_blocks', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
-
-        if (userId !== TEST_TELEGRAM_ID) {
+        if (!isAdminUser(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -940,9 +937,7 @@ export class SmartBot {
     this.bot.command('admin_analyze', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
-
-        if (userId !== TEST_TELEGRAM_ID) {
+        if (!isAdminUser(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -1085,9 +1080,7 @@ export class SmartBot {
     this.bot.command('admin_analyze_full', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
-
-        if (userId !== TEST_TELEGRAM_ID) {
+        if (!isAdminUser(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -1244,9 +1237,7 @@ export class SmartBot {
     this.bot.command('admin_send', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
-
-        if (userId !== TEST_TELEGRAM_ID) {
+        if (!isAdminUser(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -1337,7 +1328,7 @@ export class SmartBot {
       try {
         const userId = ctx.from.id.toString();
 
-        if (!GLOSSARY_APPROVERS.has(userId)) {
+        if (!isAdminUser(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -1384,7 +1375,7 @@ export class SmartBot {
         const userId = ctx.from.id.toString();
 
 
-        if (!GLOSSARY_APPROVERS.has(userId)) {
+        if (!isAdminUser(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -1457,7 +1448,7 @@ export class SmartBot {
         const userId = ctx.from.id.toString();
 
 
-        if (!GLOSSARY_APPROVERS.has(userId)) {
+        if (!isAdminUser(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -1496,8 +1487,7 @@ export class SmartBot {
     this.bot.command('admin_emoji', async (ctx) => {
       try {
         const userId = ctx.from.id.toString();
-
-        if (!GLOSSARY_APPROVERS.has(userId)) {
+        if (!isAdminUser(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -1517,7 +1507,7 @@ export class SmartBot {
         const userId = ctx.from.id.toString();
 
 
-        if (!GLOSSARY_APPROVERS.has(userId)) {
+        if (!isAdminUser(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -1550,7 +1540,7 @@ export class SmartBot {
         const userId = ctx.from.id.toString();
 
 
-        if (!GLOSSARY_APPROVERS.has(userId)) {
+        if (!isAdminUser(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -1583,7 +1573,7 @@ export class SmartBot {
         const userId = ctx.from.id.toString();
 
 
-        if (!GLOSSARY_APPROVERS.has(userId)) {
+        if (!isAdminUser(userId)) {
           ctx.reply('⛔ У вас нет доступа к этой команде.');
           return;
         }
@@ -1627,8 +1617,7 @@ export class SmartBot {
       try {
         await ctx.answerCbQuery();
         const userId = ctx.from!.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
-        const isAdmin = userId === TEST_TELEGRAM_ID;
+        const isAdmin = isAdminUser(userId);
 
         let projects;
         if (isAdmin) {
@@ -1664,8 +1653,7 @@ export class SmartBot {
       try {
         await ctx.answerCbQuery();
         const userId = ctx.from!.id.toString();
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
-        const isAdmin = userId === TEST_TELEGRAM_ID;
+        const isAdmin = isAdminUser(userId);
 
         let projects;
         if (isAdmin) {
