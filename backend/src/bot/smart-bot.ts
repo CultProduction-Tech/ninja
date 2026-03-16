@@ -2214,10 +2214,8 @@ export class SmartBot {
 
         if (userMessage.startsWith('/')) return;
 
-        // Обработка кастомных эмодзи — показать ID (для админа)
-        const TEST_TELEGRAM_ID = process.env.TEST_TELEGRAM_ID || '489599665';
         const customEmojis = allEntities.filter((e: any) => e.type === 'custom_emoji');
-        if (customEmojis.length > 0 && userId === TEST_TELEGRAM_ID) {
+        if (customEmojis.length > 0 && isAdminUser(userId)) {
           logger.info(`Smart Bot: Found ${customEmojis.length} custom emoji from admin`);
           const emojiInfo = customEmojis.map((e: any, i: number) => {
             const emojiText = userMessage.substring(e.offset, e.offset + e.length);
@@ -2232,7 +2230,7 @@ export class SmartBot {
         logger.info(`Smart Bot: User ${userId} sent: ${userMessage}`);
 
         const userType = await this.getUserType(userId);
-        const isAdmin = userId === TEST_TELEGRAM_ID;
+        const isAdmin = isAdminUser(userId);
         const userProjects = isAdmin
           ? await SupabaseClient.getAllProjects()
           : await this.getUserProjects(userId);
