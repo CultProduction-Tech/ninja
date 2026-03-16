@@ -2278,7 +2278,6 @@ export class SmartBot {
         }
 
         logger.info(`Voice transcribed for user ${ctx.from.id}: "${transcribedText}"`);
-        await ctx.reply(`🎤 "${transcribedText}"`);
 
         await this.handleTextMessage(ctx, transcribedText);
       } catch (error: any) {
