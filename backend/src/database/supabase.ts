@@ -331,6 +331,22 @@ export class SupabaseClient {
     return data;
   }
 
+  static async getOuterChat(projectId: number) {
+    const { data, error } = await supabase
+      .from('chats')
+      .select('telegram_chat_id, chat_name')
+      .eq('project_id', projectId)
+      .eq('chat_type', 'outer')
+      .limit(1)
+      .single();
+
+    if (error) {
+      logger.debug(`No outer chat found for project ${projectId}`);
+      return null;
+    }
+    return data;
+  }
+
   static async getClientProjects(clientId: number) {
     const { data, error } = await supabase
       .from('projects')

@@ -2078,9 +2078,11 @@ export class SmartBot {
         // Убираем [#id] теги для клиента
         const cleanClientText = clientText.replace(/\s*\[#\d+\]/g, '');
 
-        const clientTgId = projectClient.client_chat_id?.toString();
+        // Ищем групповой чат проекта (outer) вместо личного чата клиента
+        const outerChat = await SupabaseClient.getOuterChat(projectId);
+        const clientTgId = outerChat?.telegram_chat_id?.toString();
         if (!clientTgId) {
-          await ctx.reply(`❌ У клиента нет Telegram ID.`);
+          await ctx.reply(`❌ У проекта "${project.project_name}" нет привязанного клиентского чата.`);
           return;
         }
 
@@ -2256,6 +2258,16 @@ export class SmartBot {
           const mentionedProject = findProjectByFuzzy(msgLower, userProjects);
           if (mentionedProject) {
             projectsToShow = [mentionedProject];
+          } else {
+            // Если проект не найден в тексте, проверяем контекст предыдущего разговора
+            const ctx2 = this.userContext.get(userId);
+            if (ctx2 && (Date.now() - ctx2.timestamp < 10 * 60 * 1000)) {
+              const contextProject = userProjects.find((p: any) => p.project_id === ctx2.projectId);
+              if (contextProject) {
+                projectsToShow = [contextProject];
+                logger.info(`Status from context: project ${contextProject.project_id} (${contextProject.project_name})`);
+              }
+            }
           }
 
           if (projectsToShow.length > 1) {
