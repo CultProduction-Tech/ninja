@@ -2421,9 +2421,10 @@ export class SmartBot {
     this.bot.on('voice', async (ctx) => {
       if (!ctx.from || ctx.chat?.type !== 'private') return;
 
-      const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-      if (!OPENAI_API_KEY) {
-        logger.warn('OPENAI_API_KEY not set, voice messages disabled');
+      const YANDEX_API_KEY = process.env.YANDEX_API_KEY;
+      const YANDEX_FOLDER_ID = process.env.YANDEX_FOLDER_ID;
+      if (!YANDEX_API_KEY || !YANDEX_FOLDER_ID) {
+        logger.warn('YANDEX_API_KEY or YANDEX_FOLDER_ID not set, voice messages disabled');
         await ctx.reply('Голосовые сообщения пока не подключены.');
         return;
       }
@@ -2438,25 +2439,24 @@ export class SmartBot {
         const audioResponse = await axios.get(fileUrl, { responseType: 'arraybuffer' });
         const audioBuffer = Buffer.from(audioResponse.data);
 
-        const FormData = (await import('form-data')).default;
-        const form = new FormData();
-        form.append('file', audioBuffer, { filename: 'voice.ogg', contentType: 'audio/ogg' });
-        form.append('model', 'whisper-1');
-        form.append('language', 'ru');
-
-        const whisperResponse = await axios.post(
-          'https://api.openai.com/v1/audio/transcriptions',
-          form,
+        const sttResponse = await axios.post(
+          'https://stt.api.cloud.yandex.net/speech/v1/stt:recognize',
+          audioBuffer,
           {
+            params: {
+              folderId: YANDEX_FOLDER_ID,
+              lang: 'ru-RU',
+              format: 'oggopus',
+            },
             headers: {
-              'Authorization': `Bearer ${OPENAI_API_KEY}`,
-              ...form.getHeaders(),
+              'Authorization': `Api-Key ${YANDEX_API_KEY}`,
+              'Content-Type': 'application/octet-stream',
             },
             timeout: 30000,
           }
         );
 
-        const transcribedText = whisperResponse.data?.text?.trim();
+        const transcribedText = sttResponse.data?.result?.trim();
         if (!transcribedText) {
           await ctx.reply('Не удалось распознать голосовое сообщение.');
           return;
