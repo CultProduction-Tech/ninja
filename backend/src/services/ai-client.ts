@@ -85,6 +85,19 @@ export class AIServiceClient {
     }
   }
 
+  static async classifyIntent(message: string, projectName: string): Promise<string> {
+    try {
+      const response = await axios.post(`${AI_SERVICE_URL}/classify/intent`, {
+        message,
+        projectName
+      }, { timeout: 10000 });
+      return response.data.intent;
+    } catch (error) {
+      logger.error('Error classifying intent:', error);
+      return 'GENERAL';
+    }
+  }
+
   static async getGlossary(): Promise<{
     base: Record<string, string>;
     approved: Record<string, string>;

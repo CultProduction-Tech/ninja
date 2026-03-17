@@ -154,6 +154,29 @@ async def answer_question(request: QuestionRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class ClassifyIntentRequest(BaseModel):
+    message: str
+    projectName: str
+
+
+class ClassifyIntentResponse(BaseModel):
+    intent: str
+
+
+@app.post("/classify/intent", response_model=ClassifyIntentResponse)
+async def classify_intent(request: ClassifyIntentRequest):
+    try:
+        intent = await status_analyzer.classify_intent(
+            message=request.message,
+            project_name=request.projectName
+        )
+        logger.info(f"Classified intent: '{request.message[:50]}' → {intent}")
+        return ClassifyIntentResponse(intent=intent)
+    except Exception as e:
+        logger.error(f"Error classifying intent: {e}")
+        return ClassifyIntentResponse(intent="GENERAL")
+
+
 class DiscoverGlossaryRequest(BaseModel):
     conversation: str
     projectName: Optional[str] = ""

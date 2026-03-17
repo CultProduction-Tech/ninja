@@ -2300,7 +2300,7 @@ export class SmartBot {
         : await this.getUserProjects(userId);
 
       // === 1. Проверяем, не просит ли пользователь статус ===
-      const statusKeywords = ['статус', 'status', 'как дела', 'что по проект'];
+      const statusKeywords = ['статус', 'status', 'как дела по проект', 'что по проект'];
       const isAskingForStatus = statusKeywords.some(kw =>
         userMessage.toLowerCase().includes(kw)
       );
@@ -2376,21 +2376,29 @@ export class SmartBot {
         }
       }
 
-      // === 3. Коррекция статуса ===
-      if (context && (Date.now() - context.timestamp) < TEN_MINUTES) {
-        const correctionKeywords = [
-          'поменяй', 'измени', 'обнови', 'поставь', 'смени',
-          'поправ', 'исправ', 'должно быть', 'на самом деле',
-          'согласован', 'утвержд', 'одобрен', 'не так'
-        ];
-        const msgLower = userMessage.toLowerCase();
-        const isCorrection = correctionKeywords.some(kw => msgLower.includes(kw));
+      // === 3. "Какие проекты?" — показать список всех проектов пользователя ===
+      const projectListKeywords = [
+        'какие проекты', 'мои проекты', 'список проектов', 'все проекты', 'проекты в работе',
+        'другие проекты', 'другой проект', 'ещё проекты', 'еще проекты',
+        'что по другим', 'а что еще', 'а что ещё', 'остальные проекты', 'что еще в работе'
+      ];
+      if (projectListKeywords.some(kw => userMessage.toLowerCase().includes(kw)) && userProjects && userProjects.length > 0) {
+        const list = userProjects.map((p: any, i: number) => `${i + 1}. ${p.project_name}`).join('\n');
+        await ctx.reply(`📂 Ваши проекты (${userProjects.length}):\n\n${list}\n\n💡 Напишите "статус [название]" для подробной информации.`);
+        return;
+      }
 
-        if (isCorrection) {
+      // === 4. AI-классификация: вопрос по проекту / коррекция / общий чат ===
+      if (context && (Date.now() - context.timestamp) < TEN_MINUTES) {
+        const project = await SupabaseClient.getProject(context.projectId);
+        const intent = await AIServiceClient.classifyIntent(userMessage, project?.project_name || '');
+        logger.info(`Intent classification: "${userMessage}" → ${intent}`);
+
+        // 4a. Коррекция статуса
+        if (intent === 'CORRECTION') {
           this.userContext.set(userId, { projectId: context.projectId, timestamp: Date.now() });
           await ctx.sendChatAction('typing');
           await ctx.reply('📝 Понял, обновляю статусы...');
-
           try {
             await this.handleStatusCorrection(ctx, context.projectId, userMessage);
             return;
@@ -2400,10 +2408,9 @@ export class SmartBot {
             return;
           }
         }
-      }
 
-      // === 4. Вопрос по проекту ===
-      if (context && (Date.now() - context.timestamp) < TEN_MINUTES) {
+        // 4b. Вопрос по проекту
+        if (intent === 'PROJECT_QUESTION') {
         this.userContext.set(userId, { projectId: context.projectId, timestamp: Date.now() });
 
         await ctx.sendChatAction('typing');
@@ -2438,6 +2445,7 @@ export class SmartBot {
             await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
           } catch (e) {}
         }
+        } // end if (PROJECT_QUESTION)
       }
 
       if (userProjects && userProjects.length > 0) {
