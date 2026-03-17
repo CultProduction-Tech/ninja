@@ -1956,7 +1956,8 @@ export class SmartBot {
 
         await this.bot.telegram.sendMessage(
           pending.clientTgId,
-          `Статус на сегодня по проекту "${pending.projectName}":\n\n${pending.clientText}`
+          `Статус на сегодня по проекту "${pending.projectName}":\n\n${pending.clientText}`,
+          { parse_mode: 'HTML' }
         );
 
         await ctx.answerCbQuery('✅ Отправлено клиенту');
@@ -2967,7 +2968,7 @@ ${currentStatusContext}
       const MAX_LENGTH = 4000;
 
       if (fullMessage.length <= MAX_LENGTH) {
-        await this.bot.telegram.sendMessage(producerTgChatId, fullMessage);
+        await this.bot.telegram.sendMessage(producerTgChatId, fullMessage, { parse_mode: 'HTML' });
       } else {
         const parts = this.splitMessage(updates, MAX_LENGTH - header.length);
 
@@ -2978,7 +2979,8 @@ ${currentStatusContext}
 
           await this.bot.telegram.sendMessage(
             producerTgChatId,
-            partHeader + parts[i]
+            partHeader + parts[i],
+            { parse_mode: 'HTML' }
           );
 
           if (i < parts.length - 1) {
@@ -3030,7 +3032,7 @@ ${currentStatusContext}
       const MAX_LENGTH = 4000;
 
       if (fullMessage.length <= MAX_LENGTH) {
-        await this.bot.telegram.sendMessage(producerTgChatId, fullMessage, keyboard);
+        await this.bot.telegram.sendMessage(producerTgChatId, fullMessage, { parse_mode: 'HTML', ...keyboard });
       } else {
         // Для длинных сообщений — отправляем частями, кнопки на последнем
         const parts = this.splitMessage(updates, MAX_LENGTH - header.length);
@@ -3044,7 +3046,7 @@ ${currentStatusContext}
           await this.bot.telegram.sendMessage(
             producerTgChatId,
             partHeader + parts[i],
-            isLast ? keyboard : undefined
+            { parse_mode: 'HTML', ...(isLast ? keyboard : {}) }
           );
 
           if (!isLast) {
