@@ -14,7 +14,8 @@
       "Bash(curl -s http://localhost:8000/glossary)",
       "Bash(python -m json.tool)",
       "Bash(python -c \":*)",
-      "Bash(npx tsc --noEmit)"
+      "Bash(npx tsc --noEmit)",
+      "Bash(node -e \":*)"
     ]
   }
 }
