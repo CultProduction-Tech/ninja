@@ -1,4 +1,5 @@
 import { Telegraf, Context, Markup } from 'telegraf';
+import axios from 'axios';
 import { logger } from '../utils/logger';
 import { AIServiceClient } from '../services/ai-client';
 import { SupabaseClient, getDefaultClientSettings } from '../database/supabase';
@@ -2206,220 +2207,263 @@ export class SmartBot {
     this.bot.on('text', async (ctx: Context) => {
       if (!ctx.message || !('text' in ctx.message)) return;
       if (!ctx.from) return;
-      if (ctx.chat?.type !== 'private') return; // AI-чат только в личке
+      if (ctx.chat?.type !== 'private') return;
 
-      try {
-        const userId = ctx.from.id.toString();
-        const userMessage = ctx.message.text;
+      const userId = ctx.from.id.toString();
+      const userMessage = ctx.message.text;
 
-        // DEBUG: логируем ВСЕ входящие текстовые сообщения
-        const allEntities = (ctx.message as any).entities || [];
-        logger.info(`DEBUG text handler: user=${userId}, text="${userMessage.substring(0, 50)}", entities=${JSON.stringify(allEntities.map((e: any) => ({ type: e.type, custom_emoji_id: e.custom_emoji_id })))}`);
+      const allEntities = (ctx.message as any).entities || [];
+      logger.info(`DEBUG text handler: user=${userId}, text="${userMessage.substring(0, 50)}", entities=${JSON.stringify(allEntities.map((e: any) => ({ type: e.type, custom_emoji_id: e.custom_emoji_id })))}`);
 
-        if (userMessage.startsWith('/')) return;
+      if (userMessage.startsWith('/')) return;
 
-        const customEmojis = allEntities.filter((e: any) => e.type === 'custom_emoji');
-        if (customEmojis.length > 0 && isAdminUser(userId)) {
-          logger.info(`Smart Bot: Found ${customEmojis.length} custom emoji from admin`);
-          const emojiInfo = customEmojis.map((e: any, i: number) => {
-            const emojiText = userMessage.substring(e.offset, e.offset + e.length);
-            return `${i + 1}. "${emojiText}" → custom_emoji_id: ${e.custom_emoji_id}`;
-          }).join('\n');
-          await ctx.reply(
-            `🔍 Найдено ${customEmojis.length} кастомных эмодзи:\n\n${emojiInfo}`
-          );
-          return;
-        }
-
-        logger.info(`Smart Bot: User ${userId} sent: ${userMessage}`);
-
-        const userType = await this.getUserType(userId);
-        const isAdmin = isAdminUser(userId);
-        const userProjects = isAdmin
-          ? await SupabaseClient.getAllProjects()
-          : await this.getUserProjects(userId);
-
-        // === 1. Проверяем, не просит ли пользователь статус ===
-        const statusKeywords = ['статус', 'status', 'как дела', 'что по проект'];
-        const isAskingForStatus = statusKeywords.some(kw =>
-          userMessage.toLowerCase().includes(kw)
+      const customEmojis = allEntities.filter((e: any) => e.type === 'custom_emoji');
+      if (customEmojis.length > 0 && isAdminUser(userId)) {
+        logger.info(`Smart Bot: Found ${customEmojis.length} custom emoji from admin`);
+        const emojiInfo = customEmojis.map((e: any, i: number) => {
+          const emojiText = userMessage.substring(e.offset, e.offset + e.length);
+          return `${i + 1}. "${emojiText}" → custom_emoji_id: ${e.custom_emoji_id}`;
+        }).join('\n');
+        await ctx.reply(
+          `🔍 Найдено ${customEmojis.length} кастомных эмодзи:\n\n${emojiInfo}`
         );
-
-        if (isAskingForStatus) {
-          await ctx.sendChatAction('typing');
-
-          if (!userProjects || userProjects.length === 0) {
-            await ctx.reply('У вас пока нет привязанных проектов.');
-            return;
-          }
-
-          // Проверяем, упомянут ли конкретный проект в сообщении
-          const msgLower = userMessage.toLowerCase();
-          let projectsToShow = userProjects;
-
-          const mentionedProject = findProjectByFuzzy(msgLower, userProjects);
-          if (mentionedProject) {
-            projectsToShow = [mentionedProject];
-          } else {
-            // Если проект не найден в тексте, проверяем контекст предыдущего разговора
-            const ctx2 = this.userContext.get(userId);
-            if (ctx2 && (Date.now() - ctx2.timestamp < 10 * 60 * 1000)) {
-              const contextProject = userProjects.find((p: any) => p.project_id === ctx2.projectId);
-              if (contextProject) {
-                projectsToShow = [contextProject];
-                logger.info(`Status from context: project ${contextProject.project_id} (${contextProject.project_name})`);
-              }
-            }
-          }
-
-          if (projectsToShow.length > 1) {
-            await ctx.reply(`📊 Статусы ваших проектов (${projectsToShow.length}):`);
-          }
-
-          await this.sendStatusForProjects(ctx, projectsToShow);
-
-          // Запоминаем контекст проекта для последующих вопросов
-          if (projectsToShow.length === 1) {
-            this.userContext.set(userId, { projectId: projectsToShow[0].project_id, timestamp: Date.now() });
-            logger.info(`Context set after status: project ${projectsToShow[0].project_id} (${projectsToShow[0].project_name})`);
-          }
-          return;
-        }
-
-        // === 2. Определяем контекст проекта ===
-        let context = this.userContext.get(userId);
-        const TEN_MINUTES = 10 * 60 * 1000;
-
-        // Из reply на статус
-        if ('reply_to_message' in ctx.message && ctx.message.reply_to_message) {
-          const replyToMsg = ctx.message.reply_to_message;
-          if ('text' in replyToMsg && replyToMsg.text) {
-            const projectMatch = replyToMsg.text.match(/📋 (.+?)[\n]/);
-            if (projectMatch && projectMatch[1]) {
-              const projectName = projectMatch[1].trim();
-              const project = userProjects.find((p: any) => p.project_name === projectName);
-              if (project) {
-                context = { projectId: project.project_id, timestamp: Date.now() };
-                this.userContext.set(userId, context);
-                logger.info(`Context set from reply: project ${project.project_id} (${projectName})`);
-              }
-            }
-          }
-        }
-
-        // Из упоминания проекта в тексте
-        if (!context || (Date.now() - context.timestamp) >= TEN_MINUTES) {
-          const mentionedProject = findProjectByFuzzy(userMessage.toLowerCase(), userProjects);
-          if (mentionedProject) {
-            context = { projectId: mentionedProject.project_id, timestamp: Date.now() };
-            this.userContext.set(userId, context);
-            logger.info(`Context set from mention: project ${mentionedProject.project_id} (${mentionedProject.project_name})`);
-          }
-          // Если у продюсера один проект — автоматически используем его
-          else if (userProjects.length === 1) {
-            context = { projectId: userProjects[0].project_id, timestamp: Date.now() };
-            this.userContext.set(userId, context);
-            logger.info(`Context auto-set: single project ${userProjects[0].project_id}`);
-          }
-        }
-
-        // === 3. Коррекция статуса (поменяй, измени, обнови) ===
-        if (context && (Date.now() - context.timestamp) < TEN_MINUTES) {
-          const correctionKeywords = [
-            'поменяй', 'измени', 'обнови', 'поставь', 'смени',
-            'поправ', 'исправ', 'должно быть', 'на самом деле',
-            'согласован', 'утвержд', 'одобрен', 'не так'
-          ];
-          const msgLower = userMessage.toLowerCase();
-          const isCorrection = correctionKeywords.some(kw => msgLower.includes(kw));
-
-          if (isCorrection) {
-            this.userContext.set(userId, { projectId: context.projectId, timestamp: Date.now() });
-            await ctx.sendChatAction('typing');
-            await ctx.reply('📝 Понял, обновляю статусы...');
-
-            try {
-              await this.handleStatusCorrection(ctx, context.projectId, userMessage);
-              return;
-            } catch (error) {
-              logger.error('Error handling correction:', error);
-              await ctx.reply('❌ Произошла ошибка при обновлении статусов');
-              return;
-            }
-          }
-        }
-
-        // === 4. Вопрос по проекту — ищем ответ в переписке ===
-        if (context && (Date.now() - context.timestamp) < TEN_MINUTES) {
-          // Обновляем timestamp при каждом обращении
-          this.userContext.set(userId, { projectId: context.projectId, timestamp: Date.now() });
-
-          await ctx.sendChatAction('typing');
-          const progressMsg = await ctx.reply('🔍 Анализирую переписку проекта...');
-
-          try {
-            const project = await SupabaseClient.getProject(context.projectId);
-            if (!project) {
-              await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
-              await ctx.reply('❌ Проект не найден');
-              return;
-            }
-
-            const answer = await this.answerQuestionIteratively(
-              context.projectId,
-              project.project_name,
-              userMessage,
-              progressMsg.message_id,
-              ctx
-            );
-
-            try {
-              await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
-            } catch (e) {}
-
-            // Если ответ содержит HTML-ссылки, отправляем как HTML
-            const hasLinks = answer.includes('<a href=');
-            await ctx.reply(answer, hasLinks ? { parse_mode: 'HTML' } : {});
-            return;
-          } catch (error: any) {
-            logger.error('Error answering question from conversation:', error);
-            try {
-              await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
-            } catch (e) {}
-            // Fallthrough to general AI chat
-          }
-        }
-
-        // Сохраняем контекст проекта для следующего сообщения
-        if (userProjects && userProjects.length > 0) {
-          const mentionedAny = findProjectByFuzzy(userMessage.toLowerCase(), userProjects);
-          if (mentionedAny) {
-            this.userContext.set(userId, { projectId: mentionedAny.project_id, timestamp: Date.now() });
-            logger.info(`Context set from message: project ${mentionedAny.project_id} (${mentionedAny.project_name})`);
-          }
-        }
-
-        // === 5. Общий AI-чат (без контекста проекта) ===
-        await ctx.sendChatAction('typing');
-
-        const response = await AIServiceClient.chatWithContext({
-          userId,
-          message: userMessage,
-          userType,
-          projects: userProjects
-        });
-
-        await ctx.reply(response.answer);
-
-      } catch (error) {
-        logger.error('Smart Bot error:', error);
-        await ctx.reply('Извините, произошла ошибка. Попробуйте позже.');
+        return;
       }
+
+      await this.handleTextMessage(ctx, userMessage);
     });
 
     this.bot.on('voice', async (ctx) => {
-      await ctx.reply('Обработка голосовых сообщений скоро будет доступна.');
+      if (!ctx.from || ctx.chat?.type !== 'private') return;
+
+      const YANDEX_API_KEY = process.env.YANDEX_API_KEY;
+      const YANDEX_FOLDER_ID = process.env.YANDEX_FOLDER_ID;
+      if (!YANDEX_API_KEY || !YANDEX_FOLDER_ID) {
+        logger.warn('YANDEX_API_KEY or YANDEX_FOLDER_ID not set, voice messages disabled');
+        await ctx.reply('Голосовые сообщения пока не подключены.');
+        return;
+      }
+
+      try {
+        await ctx.sendChatAction('typing');
+
+        const fileId = ctx.message.voice.file_id;
+        const file = await ctx.telegram.getFile(fileId);
+        const fileUrl = `https://api.telegram.org/file/bot${this.bot.telegram.token}/${file.file_path}`;
+
+        const audioResponse = await axios.get(fileUrl, { responseType: 'arraybuffer' });
+        const audioBuffer = Buffer.from(audioResponse.data);
+
+        const sttResponse = await axios.post(
+          'https://stt.api.cloud.yandex.net/speech/v1/stt:recognize',
+          audioBuffer,
+          {
+            params: {
+              folderId: YANDEX_FOLDER_ID,
+              lang: 'ru-RU',
+              format: 'oggopus',
+            },
+            headers: {
+              'Authorization': `Api-Key ${YANDEX_API_KEY}`,
+              'Content-Type': 'application/octet-stream',
+            },
+            timeout: 30000,
+          }
+        );
+
+        const transcribedText = sttResponse.data?.result?.trim();
+        if (!transcribedText) {
+          await ctx.reply('Не удалось распознать голосовое сообщение.');
+          return;
+        }
+
+        logger.info(`Voice transcribed for user ${ctx.from.id}: "${transcribedText}"`);
+
+        await this.handleTextMessage(ctx, transcribedText);
+      } catch (error: any) {
+        logger.error('Voice transcription error:', error?.response?.data || error.message);
+        await ctx.reply('Ошибка при обработке голосового сообщения.');
+      }
     });
+  }
+
+  private async handleTextMessage(ctx: Context, userMessage: string) {
+    const userId = ctx.from!.id.toString();
+
+    try {
+      logger.info(`Smart Bot: User ${userId} sent: ${userMessage}`);
+
+      const userType = await this.getUserType(userId);
+      const isAdmin = isAdminUser(userId);
+      const userProjects = isAdmin
+        ? await SupabaseClient.getAllProjects()
+        : await this.getUserProjects(userId);
+
+      // === 1. Проверяем, не просит ли пользователь статус ===
+      const statusKeywords = ['статус', 'status', 'как дела', 'что по проект'];
+      const isAskingForStatus = statusKeywords.some(kw =>
+        userMessage.toLowerCase().includes(kw)
+      );
+
+      if (isAskingForStatus) {
+        await ctx.sendChatAction('typing');
+
+        if (!userProjects || userProjects.length === 0) {
+          await ctx.reply('У вас пока нет привязанных проектов.');
+          return;
+        }
+
+        const msgLower = userMessage.toLowerCase();
+        let projectsToShow = userProjects;
+
+        const mentionedProject = findProjectByFuzzy(msgLower, userProjects);
+        if (mentionedProject) {
+          projectsToShow = [mentionedProject];
+        } else {
+          const ctx2 = this.userContext.get(userId);
+          if (ctx2 && (Date.now() - ctx2.timestamp < 10 * 60 * 1000)) {
+            const contextProject = userProjects.find((p: any) => p.project_id === ctx2.projectId);
+            if (contextProject) {
+              projectsToShow = [contextProject];
+              logger.info(`Status from context: project ${contextProject.project_id} (${contextProject.project_name})`);
+            }
+          }
+        }
+
+        if (projectsToShow.length > 1) {
+          await ctx.reply(`📊 Статусы ваших проектов (${projectsToShow.length}):`);
+        }
+
+        await this.sendStatusForProjects(ctx, projectsToShow);
+
+        if (projectsToShow.length === 1) {
+          this.userContext.set(userId, { projectId: projectsToShow[0].project_id, timestamp: Date.now() });
+          logger.info(`Context set after status: project ${projectsToShow[0].project_id} (${projectsToShow[0].project_name})`);
+        }
+        return;
+      }
+
+      // === 2. Определяем контекст проекта ===
+      let context = this.userContext.get(userId);
+      const TEN_MINUTES = 10 * 60 * 1000;
+
+      if (ctx.message && 'reply_to_message' in ctx.message && ctx.message.reply_to_message) {
+        const replyToMsg = ctx.message.reply_to_message;
+        if ('text' in replyToMsg && replyToMsg.text) {
+          const projectMatch = replyToMsg.text.match(/📋 (.+?)[\n]/);
+          if (projectMatch && projectMatch[1]) {
+            const projectName = projectMatch[1].trim();
+            const project = userProjects.find((p: any) => p.project_name === projectName);
+            if (project) {
+              context = { projectId: project.project_id, timestamp: Date.now() };
+              this.userContext.set(userId, context);
+              logger.info(`Context set from reply: project ${project.project_id} (${projectName})`);
+            }
+          }
+        }
+      }
+
+      if (!context || (Date.now() - context.timestamp) >= TEN_MINUTES) {
+        const mentionedProject = findProjectByFuzzy(userMessage.toLowerCase(), userProjects);
+        if (mentionedProject) {
+          context = { projectId: mentionedProject.project_id, timestamp: Date.now() };
+          this.userContext.set(userId, context);
+          logger.info(`Context set from mention: project ${mentionedProject.project_id} (${mentionedProject.project_name})`);
+        } else if (userProjects.length === 1) {
+          context = { projectId: userProjects[0].project_id, timestamp: Date.now() };
+          this.userContext.set(userId, context);
+          logger.info(`Context auto-set: single project ${userProjects[0].project_id}`);
+        }
+      }
+
+      // === 3. Коррекция статуса ===
+      if (context && (Date.now() - context.timestamp) < TEN_MINUTES) {
+        const correctionKeywords = [
+          'поменяй', 'измени', 'обнови', 'поставь', 'смени',
+          'поправ', 'исправ', 'должно быть', 'на самом деле',
+          'согласован', 'утвержд', 'одобрен', 'не так'
+        ];
+        const msgLower = userMessage.toLowerCase();
+        const isCorrection = correctionKeywords.some(kw => msgLower.includes(kw));
+
+        if (isCorrection) {
+          this.userContext.set(userId, { projectId: context.projectId, timestamp: Date.now() });
+          await ctx.sendChatAction('typing');
+          await ctx.reply('📝 Понял, обновляю статусы...');
+
+          try {
+            await this.handleStatusCorrection(ctx, context.projectId, userMessage);
+            return;
+          } catch (error) {
+            logger.error('Error handling correction:', error);
+            await ctx.reply('❌ Произошла ошибка при обновлении статусов');
+            return;
+          }
+        }
+      }
+
+      // === 4. Вопрос по проекту ===
+      if (context && (Date.now() - context.timestamp) < TEN_MINUTES) {
+        this.userContext.set(userId, { projectId: context.projectId, timestamp: Date.now() });
+
+        await ctx.sendChatAction('typing');
+        const progressMsg = await ctx.reply('🔍 Анализирую переписку проекта...');
+
+        try {
+          const project = await SupabaseClient.getProject(context.projectId);
+          if (!project) {
+            await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
+            await ctx.reply('❌ Проект не найден');
+            return;
+          }
+
+          const answer = await this.answerQuestionIteratively(
+            context.projectId,
+            project.project_name,
+            userMessage,
+            progressMsg.message_id,
+            ctx
+          );
+
+          try {
+            await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
+          } catch (e) {}
+
+          const hasLinks = answer.includes('<a href=');
+          await ctx.reply(answer, hasLinks ? { parse_mode: 'HTML' } : {});
+          return;
+        } catch (error: any) {
+          logger.error('Error answering question from conversation:', error);
+          try {
+            await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
+          } catch (e) {}
+        }
+      }
+
+      if (userProjects && userProjects.length > 0) {
+        const mentionedAny = findProjectByFuzzy(userMessage.toLowerCase(), userProjects);
+        if (mentionedAny) {
+          this.userContext.set(userId, { projectId: mentionedAny.project_id, timestamp: Date.now() });
+          logger.info(`Context set from message: project ${mentionedAny.project_id} (${mentionedAny.project_name})`);
+        }
+      }
+
+      // === 5. Общий AI-чат ===
+      await ctx.sendChatAction('typing');
+
+      const response = await AIServiceClient.chatWithContext({
+        userId,
+        message: userMessage,
+        userType,
+        projects: userProjects
+      });
+
+      await ctx.reply(response.answer);
+
+    } catch (error) {
+      logger.error('Smart Bot error:', error);
+      await ctx.reply('Извините, произошла ошибка. Попробуйте позже.');
+    }
   }
 
   private async getUserType(telegramId: string): Promise<'producer' | 'client' | 'unknown'> {
