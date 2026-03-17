@@ -2381,7 +2381,8 @@ export class SmartBot {
       const projectListKeywords = [
         'какие проекты', 'мои проекты', 'список проектов', 'все проекты', 'проекты в работе',
         'другие проекты', 'другой проект', 'ещё проекты', 'еще проекты',
-        'что по другим', 'а что еще', 'а что ещё', 'остальные проекты', 'что еще в работе'
+        'что по другим', 'а что еще', 'а что ещё', 'остальные проекты', 'что еще в работе',
+        'какие еще', 'какие ещё'
       ];
       if (projectListKeywords.some(kw => userMessage.toLowerCase().includes(kw)) && userProjects && userProjects.length > 0) {
         const list = userProjects.map((p: any, i: number) => `${i + 1}. ${p.project_name}`).join('\n');
@@ -2395,7 +2396,14 @@ export class SmartBot {
         const intent = await AIServiceClient.classifyIntent(userMessage, project?.project_name || '');
         logger.info(`Intent classification: "${userMessage}" → ${intent}`);
 
-        // 4a. Коррекция статуса
+        // 4a. Переключение на другие проекты
+        if (intent === 'PROJECT_SWITCH' && userProjects && userProjects.length > 0) {
+          const list = userProjects.map((p: any, i: number) => `${i + 1}. ${p.project_name}`).join('\n');
+          await ctx.reply(`📂 Ваши проекты (${userProjects.length}):\n\n${list}\n\n💡 Напишите "статус [название]" для подробной информации.`);
+          return;
+        }
+
+        // 4b. Коррекция статуса
         if (intent === 'CORRECTION') {
           this.userContext.set(userId, { projectId: context.projectId, timestamp: Date.now() });
           await ctx.sendChatAction('typing');
