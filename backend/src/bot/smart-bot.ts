@@ -2407,7 +2407,7 @@ export class SmartBot {
         if (intent === 'CORRECTION') {
           this.userContext.set(userId, { projectId: context.projectId, timestamp: Date.now() });
           await ctx.sendChatAction('typing');
-          await ctx.reply('📝 Понял, обновляю статусы...');
+          await ctx.reply('📝 Понял, обновляю статус для вас...');
           try {
             await this.handleStatusCorrection(ctx, context.projectId, userMessage);
             return;
@@ -2955,12 +2955,12 @@ ${currentStatusContext}
 
       logger.info(`Updated ${updatedCount} block statuses from correction`);
 
-      await ctx.reply(`✅ Обновлено ${updatedCount} блоков. Отправляю обновленный статус...`);
+      await ctx.reply(`✅ Обновлено ${updatedCount} блоков. Формирую обновлённый статус...`);
 
       const { sendStatusToProducerAdmin } = await import('../workflows/status-scheduler');
       await sendStatusToProducerAdmin(project);
 
-      await ctx.reply(`✅ Обновленный статус отправлен!\n\n💡 Если нужно ещё что-то поправить - напишите.`);
+      await ctx.reply(`✅ Готово! Статус обновлён (только для вас, клиенту не отправлялось).\n\n💡 Если нужно ещё что-то поправить — напишите.`);
 
     } catch (error) {
       logger.error('Error handling status correction:', error);
