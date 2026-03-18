@@ -456,6 +456,62 @@ confidence — уверенность что это профессиональн
                 "needsMore": False
             }
 
+    async def classify_dashboard_statuses(
+        self,
+        blocks: List[Dict[str, str]]
+    ) -> Dict[str, str]:
+        blocks_text = "\n".join(
+            f"- {b['name']} ({'документы' if b.get('isDocuments') else 'другой'}): {b['status']}"
+            for b in blocks
+        )
+
+        prompt = f"""Классифицируй статус каждого блока проекта в категорию для дашборда.
+
+БЛОКИ И ИХ ТЕКУЩИЕ СТАТУСЫ:
+{blocks_text}
+
+КАТЕГОРИИ:
+
+Для блоков типа "документы":
+- Мы готовим документы
+- Ждём документы от вас
+- Вносятся правки
+- На подписании
+- Подписаны
+- Не определён
+
+Для всех остальных блоков:
+- Мы готовим материалы
+- Ждём ваш фидбек
+- Мы вносим правки
+- Утверждено
+- Не определён
+
+ПРАВИЛА:
+1. Выбери ОДНУ наиболее подходящую категорию для каждого блока
+2. Если статус "информация отсутствует" → "Не определён"
+3. "Согласовано" = "Утверждено" (или "Подписаны" для документов)
+4. Если статус противоречивый (и согласовано, и в работе) — выбери тот, что отражает ТЕКУЩЕЕ состояние
+
+Верни JSON объект (только JSON, без markdown):
+{{"название_блока": "категория", ...}}"""
+
+        try:
+            response = await self.llm.ainvoke(prompt)
+            raw = response.content.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+                if raw.endswith("```"):
+                    raw = raw[:-3]
+                raw = raw.strip()
+
+            result = json.loads(raw)
+            logger.info(f"Dashboard statuses classified: {result}")
+            return result
+        except Exception as e:
+            logger.error(f"Error classifying dashboard statuses: {e}")
+            return {}
+
     async def classify_intent(
         self,
         message: str,

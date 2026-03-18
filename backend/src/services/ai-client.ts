@@ -98,6 +98,23 @@ export class AIServiceClient {
     }
   }
 
+  static async classifyDashboardStatuses(blocks: Array<{
+    name: string;
+    status: string;
+    isDocuments: boolean;
+  }>): Promise<Record<string, string>> {
+    try {
+      logger.info(`AI dashboard classify request (${blocks.length} blocks)`);
+      const response = await axios.post(`${AI_SERVICE_URL}/classify/dashboard`, { blocks }, {
+        timeout: DEFAULT_TIMEOUT
+      });
+      return response.data;
+    } catch (error) {
+      logger.error('Error classifying dashboard statuses:', error);
+      return {};
+    }
+  }
+
   static async getGlossary(): Promise<{
     base: Record<string, string>;
     approved: Record<string, string>;

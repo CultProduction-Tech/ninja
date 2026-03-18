@@ -177,6 +177,27 @@ async def classify_intent(request: ClassifyIntentRequest):
         return ClassifyIntentResponse(intent="GENERAL")
 
 
+class DashboardClassifyBlock(BaseModel):
+    name: str
+    status: str
+    isDocuments: bool = False
+
+
+class DashboardClassifyRequest(BaseModel):
+    blocks: List[DashboardClassifyBlock]
+
+
+@app.post("/classify/dashboard")
+async def classify_dashboard(request: DashboardClassifyRequest):
+    try:
+        blocks_data = [{"name": b.name, "status": b.status, "isDocuments": b.isDocuments} for b in request.blocks]
+        result = await status_analyzer.classify_dashboard_statuses(blocks_data)
+        return result
+    except Exception as e:
+        logger.error(f"Error classifying dashboard statuses: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class DiscoverGlossaryRequest(BaseModel):
     conversation: str
     projectName: Optional[str] = ""

@@ -244,21 +244,24 @@ export class DashboardClient {
     projectId: number,
     projectName: string,
     blocks: DashboardBlock[],
-    statusMap: Record<string, string>
+    statusMap: Record<string, string>,
+    dashboardStatusMap: Record<string, string> = {}
   ): Promise<void> {
     try {
-      const preBlocks: Array<{ id: string; name: string; type: string; status: string }> = [];
-      const postBlocks: Array<{ id: string; name: string; type: string; status: string }> = [];
+      const preBlocks: Array<{ id: string; name: string; type: string; status: string; dashboard_status: string }> = [];
+      const postBlocks: Array<{ id: string; name: string; type: string; status: string; dashboard_status: string }> = [];
 
       for (const block of blocks) {
         const blockKey = block.id || block.name;
         const status = statusMap[blockKey] || 'Не определён';
+        const dashboardStatus = dashboardStatusMap[block.name] || 'Не определён';
 
         const entry = {
           id: block.id,
           name: block.name,
           type: block.type,
-          status
+          status,
+          dashboard_status: dashboardStatus
         };
 
         if (block.phase === 'pre') {

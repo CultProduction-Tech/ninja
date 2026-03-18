@@ -236,17 +236,27 @@ async function saveAnalysisResults(
       logger.info(`${prefix}Updated block: ${projectName} / ${block.name}`);
     }
 
-    // Синхронизируем все статусы в project_task_status (Катина таблица)
     try {
       const statusMap: Record<string, string> = {};
+      const blocksForDashboard: Array<{ name: string; status: string; isDocuments: boolean }> = [];
+
       for (const block of blocks) {
         const blockKey = block.id || block.name;
         const status = analysisResults[blockKey];
         if (status && !status.toLowerCase().includes('информация отсутствует')) {
           statusMap[blockKey] = status;
+          const isDocuments = block.name === 'documents' || block.name.toLowerCase().includes('документ') || block.name.toLowerCase().includes('договор');
+          blocksForDashboard.push({ name: block.name, status, isDocuments });
         }
       }
-      await DashboardClient.syncProjectTaskStatus(projectId, projectName, blocks, statusMap);
+
+      let dashboardStatusMap: Record<string, string> = {};
+      if (blocksForDashboard.length > 0) {
+        dashboardStatusMap = await AIServiceClient.classifyDashboardStatuses(blocksForDashboard);
+        logger.info(`Dashboard statuses classified for ${projectName}: ${JSON.stringify(dashboardStatusMap)}`);
+      }
+
+      await DashboardClient.syncProjectTaskStatus(projectId, projectName, blocks, statusMap, dashboardStatusMap);
     } catch (syncError) {
       logger.warn(`project_task_status sync failed for ${projectName} (non-critical):`, syncError);
     }
