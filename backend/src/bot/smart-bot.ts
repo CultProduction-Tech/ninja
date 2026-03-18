@@ -2302,7 +2302,7 @@ export class SmartBot {
         : await this.getUserProjects(userId);
 
       // === 1. Проверяем, не просит ли пользователь статус ===
-      const statusKeywords = ['статус', 'status', 'как дела по проект', 'что по проект'];
+      const statusKeywords = ['статус', 'status', 'как дела по проект', 'что по проект', 'как там по проект', 'что там по проект'];
       const msgLowerCheck = userMessage.toLowerCase();
       // "проект 3", "номер 3", "проект номер 3" — тоже запрос статуса
       const hasProjectNumber = /(?:проект|номер|#)\s*(?:номер\s*)?\d+/.test(msgLowerCheck) && this.userProjectMap.has(userId);
