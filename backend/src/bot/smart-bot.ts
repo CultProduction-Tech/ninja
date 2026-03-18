@@ -303,15 +303,15 @@ export class SmartBot {
         const updates = await runStatusUpdate();
 
         if (updates && Object.keys(updates).length > 0) {
-          await this.notifyAllProducers(updates);
+          const projectCount = Object.keys(updates).length;
 
           if (DRY_RUN) {
-            ctx.reply('✅ Анализ завершен!\n🧪 DRY RUN: Данные сохранены в projects_test и custom_block_statuses.\n✉️ Уведомления отправлены!');
+            ctx.reply(`Анализ завершен! Обработано проектов: ${projectCount}\nDRY RUN: Данные сохранены в projects_test и custom_block_statuses.\nУведомления продюсерам НЕ отправлены.`);
           } else {
-            ctx.reply('✅ Анализ завершен! Статусы обновлены.\n✉️ Уведомления отправлены!');
+            ctx.reply(`Анализ завершен! Статусы обновлены. Обработано проектов: ${projectCount}\nУведомления продюсерам НЕ отправлены (только анализ).`);
           }
         } else {
-          ctx.reply('✅ Анализ завершен. Новых обновлений нет.');
+          ctx.reply('Анализ завершен. Новых обновлений нет.');
         }
       } catch (error) {
         logger.error('Error in /analyze:', error);
