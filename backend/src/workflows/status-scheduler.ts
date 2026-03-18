@@ -483,7 +483,7 @@ export function resolveMessageLinks(text: string, linkMap: Map<number, string>):
     const id = parseInt(idStr, 10);
     const link = linkMap.get(id);
     if (link) {
-      return `(📎)`;
+      return `(источник)`;
     }
     // Нет ссылки — убираем тег
     return '';
@@ -500,7 +500,7 @@ export function resolveMessageLinksHtml(text: string, linkMap: Map<number, strin
     const links = ids
       .map((id: number) => {
         const link = linkMap.get(id);
-        return link ? `<a href="${link}">📎</a>` : null;
+        return link ? `<a href="${link}">(источник)</a>` : null;
       })
       .filter(Boolean);
     return links.length > 0 ? links.join(' ') : match;
@@ -510,7 +510,7 @@ export function resolveMessageLinksHtml(text: string, linkMap: Map<number, strin
   text = text.replace(/\[#(\d+)\]/g, (match, idStr) => {
     const id = parseInt(idStr, 10);
     const link = linkMap.get(id);
-    return link ? `<a href="${link}">📎</a>` : match;
+    return link ? `<a href="${link}">(источник)</a>` : match;
   });
 
   return text;
