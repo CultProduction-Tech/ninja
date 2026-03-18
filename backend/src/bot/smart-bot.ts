@@ -159,6 +159,7 @@ export class SmartBot {
   private userContext: Map<string, { projectId: number; timestamp: number }> = new Map();
   private conversationHistory: Map<string, ConversationMessage[]> = new Map();
   private pendingClientStatuses: Map<string, { clientTgId: string; projectName: string; clientText: string }> = new Map();
+  private userProjectMap: Map<string, any[]> = new Map(); // userId → ordered project list for number references
 
   constructor(token: string) {
     this.bot = new Telegraf(token, {
@@ -2302,8 +2303,11 @@ export class SmartBot {
 
       // === 1. Проверяем, не просит ли пользователь статус ===
       const statusKeywords = ['статус', 'status', 'как дела по проект', 'что по проект'];
-      const isAskingForStatus = statusKeywords.some(kw =>
-        userMessage.toLowerCase().includes(kw)
+      const msgLowerCheck = userMessage.toLowerCase();
+      // "проект 3", "номер 3", "проект номер 3" — тоже запрос статуса
+      const hasProjectNumber = /(?:проект|номер|#)\s*(?:номер\s*)?\d+/.test(msgLowerCheck) && this.userProjectMap.has(userId);
+      const isAskingForStatus = hasProjectNumber || statusKeywords.some(kw =>
+        msgLowerCheck.includes(kw)
       );
 
       if (isAskingForStatus) {
@@ -2317,16 +2321,31 @@ export class SmartBot {
         const msgLower = userMessage.toLowerCase();
         let projectsToShow = userProjects;
 
-        const mentionedProject = findProjectByFuzzy(msgLower, userProjects);
-        if (mentionedProject) {
-          projectsToShow = [mentionedProject];
-        } else {
-          const ctx2 = this.userContext.get(userId);
-          if (ctx2 && (Date.now() - ctx2.timestamp < 10 * 60 * 1000)) {
-            const contextProject = userProjects.find((p: any) => p.project_id === ctx2.projectId);
-            if (contextProject) {
-              projectsToShow = [contextProject];
-              logger.info(`Status from context: project ${contextProject.project_id} (${contextProject.project_name})`);
+        // Проверяем номер проекта ("проект 3", "номер 3", "проект номер 3")
+        const numMatch = msgLower.match(/(?:проект|номер|#)\s*(?:номер\s*)?(\d+)/);
+        const savedList = this.userProjectMap.get(userId);
+        if (numMatch && savedList) {
+          const idx = parseInt(numMatch[1], 10) - 1;
+          if (idx >= 0 && idx < savedList.length) {
+            projectsToShow = [savedList[idx]];
+            this.userContext.set(userId, { projectId: savedList[idx].project_id, timestamp: Date.now() });
+            logger.info(`Project selected by number: ${idx + 1} → ${savedList[idx].project_name}`);
+          }
+        }
+
+        if (projectsToShow.length > 1) {
+          // Если номер не сработал — пробуем fuzzy
+          const mentionedProject = findProjectByFuzzy(msgLower, userProjects);
+          if (mentionedProject) {
+            projectsToShow = [mentionedProject];
+          } else {
+            const ctx2 = this.userContext.get(userId);
+            if (ctx2 && (Date.now() - ctx2.timestamp < 10 * 60 * 1000)) {
+              const contextProject = userProjects.find((p: any) => p.project_id === ctx2.projectId);
+              if (contextProject) {
+                projectsToShow = [contextProject];
+                logger.info(`Status from context: project ${contextProject.project_id} (${contextProject.project_name})`);
+              }
             }
           }
         }
@@ -2386,7 +2405,8 @@ export class SmartBot {
       ];
       if (projectListKeywords.some(kw => userMessage.toLowerCase().includes(kw)) && userProjects && userProjects.length > 0) {
         const list = userProjects.map((p: any, i: number) => `${i + 1}. ${p.project_name}`).join('\n');
-        await ctx.reply(`📂 Ваши проекты (${userProjects.length}):\n\n${list}\n\n💡 Напишите "статус [название]" для подробной информации.`);
+        this.userProjectMap.set(userId, userProjects);
+        await ctx.reply(`📂 Ваши проекты (${userProjects.length}):\n\n${list}\n\n💡 Напишите "статус [название]" или "проект 3" для подробной информации.`);
         return;
       }
 
@@ -2399,7 +2419,8 @@ export class SmartBot {
         // 4a. Переключение на другие проекты
         if (intent === 'PROJECT_SWITCH' && userProjects && userProjects.length > 0) {
           const list = userProjects.map((p: any, i: number) => `${i + 1}. ${p.project_name}`).join('\n');
-          await ctx.reply(`📂 Ваши проекты (${userProjects.length}):\n\n${list}\n\n💡 Напишите "статус [название]" для подробной информации.`);
+          this.userProjectMap.set(userId, userProjects);
+          await ctx.reply(`📂 Ваши проекты (${userProjects.length}):\n\n${list}\n\n💡 Напишите "статус [название]" или "проект 3" для подробной информации.`);
           return;
         }
 
@@ -2445,8 +2466,7 @@ export class SmartBot {
             await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
           } catch (e) {}
 
-          const hasLinks = answer.includes('<a href=');
-          await ctx.reply(answer, hasLinks ? { parse_mode: 'HTML' } : {});
+          await ctx.reply(answer, { parse_mode: 'HTML' });
           return;
         } catch (error: any) {
           logger.error('Error answering question from conversation:', error);
