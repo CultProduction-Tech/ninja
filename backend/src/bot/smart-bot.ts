@@ -21,8 +21,8 @@ function markdownToHtml(text: string): string {
   result = result.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
   // *italic* → <i>italic</i>
   result = result.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<i>$1</i>');
-  // Убираем оставшиеся [#ID] ссылки на сообщения
-  result = result.replace(/\s*\[#\d+\]/g, '');
+  // Убираем оставшиеся [#ID] ссылки на сообщения (одиночные и списки через запятую)
+  result = result.replace(/\s*\[#\d+(?:,\s*#?\d+)*\]/g, '');
   // Экранируем HTML-спецсимволы, кроме наших тегов
   // (не нужно — Telegram парсит только известные теги, остальное игнорирует)
   return result;
@@ -108,7 +108,7 @@ function isWordMatch(query: string, nameWord: string): boolean {
 
 // Слова-команды, которые не являются частью названия проекта
 const STOP_WORDS = new Set([
-  'статус', 'покажи', 'дай', 'скинь', 'проект', 'проекта', 'проекту', 'проектом', 'проекте',
+  'статус', 'покажи', 'дай', 'скинь', 'проект', 'проекта', 'проекту', 'проектом', 'проекте', 'проекты', 'проектов',
   'по', 'для', 'мне', 'пожалуйста', 'плиз', 'status',
   'на', 'не', 'ну', 'да', 'нет', 'как', 'что', 'кто', 'где', 'когда', 'зачем', 'почему',
   'давай', 'обсудим', 'расскажи', 'подробнее', 'есть', 'нету', 'ещё', 'еще', 'сейчас',
@@ -275,7 +275,7 @@ export class SmartBot {
         const isAdmin = isAdminUser(userId);
 
         if (userType === 'producer' || isAdmin) {
-          const projects = await this.getUserProjects(userId);
+          const projects = isAdmin ? await SupabaseClient.getAllProjects() : await this.getUserProjects(userId);
           const projectList = projects.length > 0
             ? projects.map((p: any) => `• ${p.project_name}`).join('\n')
             : 'Пока нет привязанных проектов.';
@@ -2327,13 +2327,25 @@ export class SmartBot {
         : await this.getUserProjects(userId);
 
       // === 1. Проверяем, не просит ли пользователь статус ===
-      const statusKeywords = ['статус', 'status', 'как дела по проект', 'что по проект', 'как там по проект', 'что там по проект'];
+      const statusKeywords = ['статус', 'status', 'как дела по проект', 'что по проект', 'как там по проект', 'что там по проект', 'че там по проект', 'чё там по проект', 'че по проект', 'чё по проект'];
       const msgLowerCheck = userMessage.toLowerCase();
       // "проект 3", "номер 3", "проект номер 3", "5 проект", "про 5 проект" — тоже запрос статуса
       const hasProjectNumber = (/(?:проект|номер|#)\s*(?:номер\s*)?\d+/.test(msgLowerCheck) || /\d+\s*(?:проект|номер)/.test(msgLowerCheck)) && this.userProjectMap.has(userId);
-      const isAskingForStatus = hasProjectNumber || statusKeywords.some(kw =>
-        msgLowerCheck.includes(kw)
-      );
+
+      // Если в сообщении есть дополнительный вопрос кроме запроса статуса — это PROJECT_QUESTION, не статус
+      const questionIndicators = [
+        'сложност', 'проблем', 'вопрос', 'когда', 'кто', 'зачем', 'почему', 'сколько',
+        'ссылк', 'материал', 'кастинг', 'монтаж', 'музык', 'графи', 'сценари',
+        'согласован', 'утвержд', 'правк', 'дедлайн', 'срок', 'готов',
+        '?', // если есть вопросительный знак после statusKeyword — скорее вопрос
+      ];
+      const hasStatusKeyword = statusKeywords.some(kw => msgLowerCheck.includes(kw));
+      const hasQuestionIndicator = questionIndicators.some(qi => msgLowerCheck.includes(qi));
+      // Два предложения в сообщении = скорее всего есть и запрос статуса и доп. вопрос
+      const hasMultipleSentences = (userMessage.match(/[.!?]\s+[а-яА-Яa-zA-Z]/g) || []).length > 0;
+      const isStatusWithQuestion = hasStatusKeyword && (hasQuestionIndicator || hasMultipleSentences);
+
+      const isAskingForStatus = !isStatusWithQuestion && (hasProjectNumber || hasStatusKeyword);
 
       if (isAskingForStatus) {
         await ctx.sendChatAction('typing');
@@ -2408,13 +2420,14 @@ export class SmartBot {
         }
       }
 
-      if (!context || (Date.now() - context.timestamp) >= TEN_MINUTES) {
-        const mentionedProject = findProjectByFuzzy(userMessage.toLowerCase(), userProjects);
-        if (mentionedProject) {
-          context = { projectId: mentionedProject.project_id, timestamp: Date.now() };
-          this.userContext.set(userId, context);
-          logger.info(`Context set from mention: project ${mentionedProject.project_id} (${mentionedProject.project_name})`);
-        } else if (userProjects.length === 1) {
+      // Всегда проверяем, упоминается ли проект в сообщении (для переключения контекста)
+      const mentionedProject = findProjectByFuzzy(userMessage.toLowerCase(), userProjects);
+      if (mentionedProject) {
+        context = { projectId: mentionedProject.project_id, timestamp: Date.now() };
+        this.userContext.set(userId, context);
+        logger.info(`Context set from mention: project ${mentionedProject.project_id} (${mentionedProject.project_name})`);
+      } else if (!context || (Date.now() - context.timestamp) >= TEN_MINUTES) {
+        if (userProjects.length === 1) {
           context = { projectId: userProjects[0].project_id, timestamp: Date.now() };
           this.userContext.set(userId, context);
           logger.info(`Context auto-set: single project ${userProjects[0].project_id}`);
@@ -2426,7 +2439,8 @@ export class SmartBot {
         'какие проекты', 'мои проекты', 'список проектов', 'все проекты', 'проекты в работе',
         'другие проекты', 'другой проект', 'ещё проекты', 'еще проекты',
         'что по другим', 'а что еще', 'а что ещё', 'остальные проекты', 'что еще в работе',
-        'какие еще', 'какие ещё'
+        'какие еще', 'какие ещё',
+        'у меня проекты', 'покажи проекты', 'мои проекты', 'сколько проектов',
       ];
       if (projectListKeywords.some(kw => userMessage.toLowerCase().includes(kw)) && userProjects && userProjects.length > 0) {
         const list = userProjects.map((p: any, i: number) => `${i + 1}. ${p.project_name}`).join('\n');
@@ -2458,10 +2472,19 @@ export class SmartBot {
 
         // Переключение на другие проекты
         if (intent === 'PROJECT_SWITCH' && userProjects && userProjects.length > 0) {
-          const list = userProjects.map((p: any, i: number) => `${i + 1}. ${p.project_name}`).join('\n');
-          this.userProjectMap.set(userId, userProjects);
-          await ctx.reply(`📂 Ваши проекты (${userProjects.length}):\n\n${list}\n\n💡 Напишите "статус [название]" или "проект 3" для подробной информации.`);
-          return;
+          // Если в сообщении упоминается конкретный проект — переключаем контекст и отвечаем как вопрос
+          const mentionedInSwitch = findProjectByFuzzy(userMessage.toLowerCase(), userProjects);
+          if (mentionedInSwitch) {
+            context = { projectId: mentionedInSwitch.project_id, timestamp: Date.now() };
+            this.userContext.set(userId, context);
+            logger.info(`PROJECT_SWITCH with specific project "${mentionedInSwitch.project_name}" → treating as PROJECT_QUESTION`);
+            // Не return — провалится в блок вопроса по проекту ниже
+          } else {
+            const list = userProjects.map((p: any, i: number) => `${i + 1}. ${p.project_name}`).join('\n');
+            this.userProjectMap.set(userId, userProjects);
+            await ctx.reply(`📂 Ваши проекты (${userProjects.length}):\n\n${list}\n\n💡 Напишите "статус [название]" или "проект 3" для подробной информации.`);
+            return;
+          }
         }
 
         // Коррекция статуса
