@@ -44,11 +44,16 @@ class DynamicBlocksRequest(BaseModel):
     conversation: str
 
 
+class PreviousQA(BaseModel):
+    question: str
+    answer: str
+
 class QuestionRequest(BaseModel):
     projectName: str
     question: str
     conversation: str
     messageCount: int
+    previousQA: Optional[PreviousQA] = None
 
 
 class QuestionResponse(BaseModel):
@@ -144,7 +149,8 @@ async def answer_question(request: QuestionRequest):
             project_name=request.projectName,
             question=request.question,
             conversation=request.conversation,
-            message_count=request.messageCount
+            message_count=request.messageCount,
+            previous_qa={"question": request.previousQA.question, "answer": request.previousQA.answer} if request.previousQA else None
         )
 
         return QuestionResponse(**result)

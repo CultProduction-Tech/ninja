@@ -70,6 +70,7 @@ export class AIServiceClient {
     question: string;
     conversation: string;
     messageCount: number;
+    previousQA?: { question: string; answer: string };
   }): Promise<{ answer: string; needsMore: boolean }> {
     try {
       const timeout = params.conversation.length > 10000 ? LONG_TIMEOUT : DEFAULT_TIMEOUT;

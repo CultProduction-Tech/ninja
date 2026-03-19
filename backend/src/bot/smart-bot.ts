@@ -14,6 +14,20 @@ import {
 
 const MANUAL_STATUS_MAX_AGE_DAYS = 3;
 
+// Конвертация markdown из AI-ответа в Telegram HTML
+function markdownToHtml(text: string): string {
+  let result = text;
+  // **bold** → <b>bold</b>
+  result = result.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  // *italic* → <i>italic</i>
+  result = result.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<i>$1</i>');
+  // Убираем оставшиеся [#ID] ссылки на сообщения
+  result = result.replace(/\s*\[#\d+\]/g, '');
+  // Экранируем HTML-спецсимволы, кроме наших тегов
+  // (не нужно — Telegram парсит только известные теги, остальное игнорирует)
+  return result;
+}
+
 // Двусторонняя транслитерация для fuzzy-поиска проектов
 const LAT_TO_CYR: Record<string, string> = {
   a: 'а', b: 'б', v: 'в', g: 'г', d: 'д', e: 'е', z: 'з', i: 'и',
@@ -63,12 +77,17 @@ function cleanForCompare(s: string): string {
 }
 
 function isSimilar(a: string, b: string): boolean {
-  if (a.includes(b) || b.includes(a)) return true;
+  if (a === b) return true;
+  const minLen = Math.min(a.length, b.length);
   const maxLen = Math.max(a.length, b.length);
+  // Substring match: короткое слово должно быть хотя бы 50% длины длинного
+  if (minLen >= 2 && minLen / maxLen >= 0.5 && (a.includes(b) || b.includes(a))) return true;
   if (maxLen <= 2) return a === b;
   const ac = cleanForCompare(a), bc = cleanForCompare(b);
-  if (ac.includes(bc) || bc.includes(ac)) return true;
+  if (ac === bc) return true;
+  const minC = Math.min(ac.length, bc.length);
   const maxC = Math.max(ac.length, bc.length);
+  if (minC >= 2 && minC / maxC >= 0.5 && (ac.includes(bc) || bc.includes(ac))) return true;
   if (maxC > 2 && levenshtein(ac, bc) / maxC <= 0.45) return true;
   return false;
 }
@@ -89,8 +108,13 @@ function isWordMatch(query: string, nameWord: string): boolean {
 
 // Слова-команды, которые не являются частью названия проекта
 const STOP_WORDS = new Set([
-  'статус', 'покажи', 'дай', 'скинь', 'проект', 'проекта', 'проекту',
+  'статус', 'покажи', 'дай', 'скинь', 'проект', 'проекта', 'проекту', 'проектом', 'проекте',
   'по', 'для', 'мне', 'пожалуйста', 'плиз', 'status',
+  'на', 'не', 'ну', 'да', 'нет', 'как', 'что', 'кто', 'где', 'когда', 'зачем', 'почему',
+  'давай', 'обсудим', 'расскажи', 'подробнее', 'есть', 'нету', 'ещё', 'еще', 'сейчас',
+  'утверден', 'утверждён', 'утверждены', 'утвержден', 'кастинге', 'кастинг',
+  'какой', 'какая', 'какие', 'какого', 'вот', 'это', 'там', 'тут', 'вообще',
+  'говорю', 'про', 'тоже', 'типа', 'блин', 'ладно',
 ]);
 
 function extractQuery(message: string): string[] {
@@ -160,6 +184,7 @@ export class SmartBot {
   private conversationHistory: Map<string, ConversationMessage[]> = new Map();
   private pendingClientStatuses: Map<string, { clientTgId: string; projectName: string; clientText: string }> = new Map();
   private userProjectMap: Map<string, any[]> = new Map(); // userId → ordered project list for number references
+  private lastQA: Map<string, { question: string; answer: string; timestamp: number }> = new Map(); // последний Q&A для follow-up
 
   constructor(token: string) {
     this.bot = new Telegraf(token, {
@@ -2304,8 +2329,8 @@ export class SmartBot {
       // === 1. Проверяем, не просит ли пользователь статус ===
       const statusKeywords = ['статус', 'status', 'как дела по проект', 'что по проект', 'как там по проект', 'что там по проект'];
       const msgLowerCheck = userMessage.toLowerCase();
-      // "проект 3", "номер 3", "проект номер 3" — тоже запрос статуса
-      const hasProjectNumber = /(?:проект|номер|#)\s*(?:номер\s*)?\d+/.test(msgLowerCheck) && this.userProjectMap.has(userId);
+      // "проект 3", "номер 3", "проект номер 3", "5 проект", "про 5 проект" — тоже запрос статуса
+      const hasProjectNumber = (/(?:проект|номер|#)\s*(?:номер\s*)?\d+/.test(msgLowerCheck) || /\d+\s*(?:проект|номер)/.test(msgLowerCheck)) && this.userProjectMap.has(userId);
       const isAskingForStatus = hasProjectNumber || statusKeywords.some(kw =>
         msgLowerCheck.includes(kw)
       );
@@ -2321,8 +2346,8 @@ export class SmartBot {
         const msgLower = userMessage.toLowerCase();
         let projectsToShow = userProjects;
 
-        // Проверяем номер проекта ("проект 3", "номер 3", "проект номер 3")
-        const numMatch = msgLower.match(/(?:проект|номер|#)\s*(?:номер\s*)?(\d+)/);
+        // Проверяем номер проекта ("проект 3", "номер 3", "проект номер 3", "5 проект")
+        const numMatch = msgLower.match(/(?:проект|номер|#)\s*(?:номер\s*)?(\d+)/) || msgLower.match(/(\d+)\s*(?:проект|номер)/);
         const savedList = this.userProjectMap.get(userId);
         if (numMatch && savedList) {
           const idx = parseInt(numMatch[1], 10) - 1;
@@ -2410,13 +2435,28 @@ export class SmartBot {
         return;
       }
 
-      // === 4. AI-классификация: вопрос по проекту / коррекция / общий чат ===
+      // === 4. Есть контекст проекта → классифицируем CORRECTION / PROJECT_SWITCH / GENERAL (реакции), остальное = вопрос по проекту ===
       if (context && (Date.now() - context.timestamp) < TEN_MINUTES) {
         const project = await SupabaseClient.getProject(context.projectId);
+
+        // Короткие реакции/благодарности → пропускаем в общий чат, не анализируем переписку
+        const chatReactions = [
+          'спасибо', 'спс', 'благодарю', 'молодец', 'круто', 'класс', 'супер', 'огонь',
+          'ок', 'окей', 'ладно', 'понял', 'поняла', 'понятно', 'ясно', 'хорошо', 'отлично',
+          'привет', 'здравствуй', 'добрый', 'пока', 'до свидания', 'ахах', 'хаха', 'лол',
+          'да', 'нет', 'угу', 'ага', 'ну', 'ок)', 'ладненько', 'красава', 'имба', 'топ',
+        ];
+        const msgTrimmed = userMessage.toLowerCase().replace(/[!?.,:;)\s]+$/g, '').trim();
+        const isChatReaction = chatReactions.some(r => msgTrimmed === r || msgTrimmed.startsWith(r + ' '));
+        if (isChatReaction && msgTrimmed.length < 30) {
+          // Пропускаем в общий AI-чат (секция 5)
+          logger.info(`Chat reaction detected: "${userMessage}" — skipping project analysis`);
+        } else {
+
         const intent = await AIServiceClient.classifyIntent(userMessage, project?.project_name || '');
         logger.info(`Intent classification: "${userMessage}" → ${intent}`);
 
-        // 4a. Переключение на другие проекты
+        // Переключение на другие проекты
         if (intent === 'PROJECT_SWITCH' && userProjects && userProjects.length > 0) {
           const list = userProjects.map((p: any, i: number) => `${i + 1}. ${p.project_name}`).join('\n');
           this.userProjectMap.set(userId, userProjects);
@@ -2424,7 +2464,7 @@ export class SmartBot {
           return;
         }
 
-        // 4b. Коррекция статуса
+        // Коррекция статуса
         if (intent === 'CORRECTION') {
           this.userContext.set(userId, { projectId: context.projectId, timestamp: Date.now() });
           await ctx.sendChatAction('typing');
@@ -2439,8 +2479,8 @@ export class SmartBot {
           }
         }
 
-        // 4b. Вопрос по проекту
-        if (intent === 'PROJECT_QUESTION') {
+        // Всё остальное (включая GENERAL) → вопрос по проекту (раз контекст есть)
+        {
         this.userContext.set(userId, { projectId: context.projectId, timestamp: Date.now() });
 
         await ctx.sendChatAction('typing');
@@ -2454,13 +2494,22 @@ export class SmartBot {
             return;
           }
 
+          const prevQA = this.lastQA.get(userId);
+          const previousQA = prevQA && (Date.now() - prevQA.timestamp < 10 * 60 * 1000)
+            ? { question: prevQA.question, answer: prevQA.answer }
+            : undefined;
+
           const answer = await this.answerQuestionIteratively(
             context.projectId,
             project.project_name,
             userMessage,
             progressMsg.message_id,
-            ctx
+            ctx,
+            previousQA
           );
+
+          // Сохраняем Q&A для follow-up вопросов
+          this.lastQA.set(userId, { question: userMessage, answer, timestamp: Date.now() });
 
           try {
             await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
@@ -2474,7 +2523,8 @@ export class SmartBot {
             await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
           } catch (e) {}
         }
-        } // end if (PROJECT_QUESTION)
+        } // end project question block
+      } // end else (not chat reaction)
       }
 
       if (userProjects && userProjects.length > 0) {
@@ -2495,7 +2545,7 @@ export class SmartBot {
         projects: userProjects
       });
 
-      await ctx.reply(response.answer);
+      await ctx.reply(markdownToHtml(response.answer), { parse_mode: 'HTML' });
 
     } catch (error) {
       logger.error('Smart Bot error:', error);
@@ -2640,9 +2690,10 @@ export class SmartBot {
     projectName: string,
     question: string,
     progressMsgId: number,
-    ctx: any
+    ctx: any,
+    previousQA?: { question: string; answer: string }
   ): Promise<string> {
-    const BATCH_SIZE = 50;
+    const BATCH_SIZE = 200;
     const MAX_MESSAGES = 500;
     let currentLimit = BATCH_SIZE;
 
@@ -2672,26 +2723,29 @@ export class SmartBot {
           projectName,
           question,
           conversation: conversationText,
-          messageCount: messages.length
+          messageCount: messages.length,
+          previousQA: previousQA
         });
 
         if (!result.needsMore) {
           logger.info(`Found answer using ${messages.length} messages`);
-          // Резолвим [#ID] в кликабельные ссылки
+          // Резолвим [#ID] в кликабельные ссылки, конвертим markdown→HTML
           const linkMap = SupabaseClient.buildMessageLinkMap(messages);
+          let answer = result.answer;
           if (linkMap.size > 0) {
-            return resolveMessageLinksHtml(result.answer, linkMap);
+            answer = resolveMessageLinksHtml(answer, linkMap);
           }
-          return result.answer;
+          return markdownToHtml(answer);
         }
 
         if (messages.length < currentLimit) {
           logger.info(`No more messages available (${messages.length} total)`);
           const linkMap = SupabaseClient.buildMessageLinkMap(messages);
+          let answer = result.answer;
           if (linkMap.size > 0) {
-            return resolveMessageLinksHtml(result.answer, linkMap);
+            answer = resolveMessageLinksHtml(answer, linkMap);
           }
-          return result.answer;
+          return markdownToHtml(answer);
         }
 
         logger.info(`Need more context, loading more messages (current: ${currentLimit} → next: ${currentLimit + BATCH_SIZE})`);
