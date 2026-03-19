@@ -2317,6 +2317,8 @@ export class SmartBot {
   private async handleTextMessage(ctx: Context, userMessage: string) {
     const userId = ctx.from!.id.toString();
 
+    const CONTEXT_TTL = 40 * 60 * 1000; // 40 минут
+
     try {
       logger.info(`Smart Bot: User ${userId} sent: ${userMessage}`);
 
@@ -2377,7 +2379,7 @@ export class SmartBot {
             projectsToShow = [mentionedProject];
           } else {
             const ctx2 = this.userContext.get(userId);
-            if (ctx2 && (Date.now() - ctx2.timestamp < 10 * 60 * 1000)) {
+            if (ctx2 && (Date.now() - ctx2.timestamp < CONTEXT_TTL)) {
               const contextProject = userProjects.find((p: any) => p.project_id === ctx2.projectId);
               if (contextProject) {
                 projectsToShow = [contextProject];
@@ -2402,7 +2404,6 @@ export class SmartBot {
 
       // === 2. Определяем контекст проекта ===
       let context = this.userContext.get(userId);
-      const TEN_MINUTES = 10 * 60 * 1000;
 
       if (ctx.message && 'reply_to_message' in ctx.message && ctx.message.reply_to_message) {
         const replyToMsg = ctx.message.reply_to_message;
@@ -2421,12 +2422,30 @@ export class SmartBot {
       }
 
       // Всегда проверяем, упоминается ли проект в сообщении (для переключения контекста)
+      let projectSwitched = false;
       const mentionedProject = findProjectByFuzzy(userMessage.toLowerCase(), userProjects);
       if (mentionedProject) {
-        context = { projectId: mentionedProject.project_id, timestamp: Date.now() };
-        this.userContext.set(userId, context);
+        const oldProjectId = context?.projectId;
+        // Если сообщение — просто название проекта (ответ на "какой проект?"), а в lastQA есть вопрос — повторяем вопрос для нового проекта
+        const msgClean = userMessage.toLowerCase().replace(/[^а-яёa-z0-9\s]/g, '').trim();
+        const isJustProjectName = msgClean.split(/\s+/).length <= 3;
+        const prevQA = this.lastQA.get(userId);
+        if (isJustProjectName && prevQA && (Date.now() - prevQA.timestamp < CONTEXT_TTL)) {
+          logger.info(`User replied with just project name "${mentionedProject.project_name}", re-using previous question: "${prevQA.question}"`);
+          context = { projectId: mentionedProject.project_id, timestamp: Date.now() };
+          this.userContext.set(userId, context);
+          // Подставляем предыдущий вопрос с новым проектом
+          userMessage = prevQA.question;
+        } else {
+          context = { projectId: mentionedProject.project_id, timestamp: Date.now() };
+          this.userContext.set(userId, context);
+        }
+        // Если проект сменился — не передаём старый Q&A контекст
+        if (oldProjectId && oldProjectId !== mentionedProject.project_id) {
+          projectSwitched = true;
+        }
         logger.info(`Context set from mention: project ${mentionedProject.project_id} (${mentionedProject.project_name})`);
-      } else if (!context || (Date.now() - context.timestamp) >= TEN_MINUTES) {
+      } else if (!context || (Date.now() - context.timestamp) >= CONTEXT_TTL) {
         if (userProjects.length === 1) {
           context = { projectId: userProjects[0].project_id, timestamp: Date.now() };
           this.userContext.set(userId, context);
@@ -2450,7 +2469,7 @@ export class SmartBot {
       }
 
       // === 4. Есть контекст проекта → классифицируем CORRECTION / PROJECT_SWITCH / GENERAL (реакции), остальное = вопрос по проекту ===
-      if (context && (Date.now() - context.timestamp) < TEN_MINUTES) {
+      if (context && (Date.now() - context.timestamp) < CONTEXT_TTL) {
         const project = await SupabaseClient.getProject(context.projectId);
 
         // Короткие реакции/благодарности → пропускаем в общий чат, не анализируем переписку
@@ -2518,7 +2537,8 @@ export class SmartBot {
           }
 
           const prevQA = this.lastQA.get(userId);
-          const previousQA = prevQA && (Date.now() - prevQA.timestamp < 10 * 60 * 1000)
+          // При переключении проекта не передаём старый Q&A — AI будет искать заново
+          const previousQA = (!projectSwitched && prevQA && (Date.now() - prevQA.timestamp < CONTEXT_TTL))
             ? { question: prevQA.question, answer: prevQA.answer }
             : undefined;
 
@@ -2558,7 +2578,27 @@ export class SmartBot {
         }
       }
 
-      // === 5. Общий AI-чат ===
+      // === 5. Если вопрос явно про работу, но нет контекста проекта — спрашиваем какой проект ===
+      const workKeywords = [
+        'кастинг', 'монтаж', 'музык', 'сценари', 'графи', 'локаци', 'реквизит', 'костюм',
+        'съемк', 'съёмк', 'согласован', 'правк', 'ссылк', 'материал', 'драфт', 'мастер',
+        'трейлер', 'выпуск', 'ролик', 'видео', 'фото', 'ретуш', 'цветокоррекц',
+        'документ', 'смет', 'акт', 'договор', 'бюджет', 'дедлайн', 'срок',
+        'клиент', 'продюсер', 'режиссер', 'оператор', 'эксперт', 'блогер',
+        'сложност', 'проблем', 'задерж', 'статус',
+      ];
+      const msgLowerForWork = userMessage.toLowerCase();
+      const looksLikeWorkQuestion = workKeywords.some(kw => msgLowerForWork.includes(kw));
+      if (looksLikeWorkQuestion && userProjects && userProjects.length > 1) {
+        // Сохраняем вопрос в lastQA чтобы при ответе "вк" подхватился
+        this.lastQA.set(userId, { question: userMessage, answer: '', timestamp: Date.now() });
+        const list = userProjects.map((p: any, i: number) => `${i + 1}. ${p.project_name}`).join('\n');
+        this.userProjectMap.set(userId, userProjects);
+        await ctx.reply(`По какому проекту?\n\n${list}\n\n💡 Напишите название или номер проекта.`);
+        return;
+      }
+
+      // === 6. Общий AI-чат ===
       await ctx.sendChatAction('typing');
 
       const response = await AIServiceClient.chatWithContext({
