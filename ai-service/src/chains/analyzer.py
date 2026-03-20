@@ -188,64 +188,137 @@ confidence — уверенность что это профессиональн
         blocks: List[Any],
         conversation: str
     ) -> Dict[str, str]:
+        logger.info(f"Analyzing {len(blocks)} blocks for project '{project_name}' (batch mode)")
+
+        block_names_ru = {
+            'documents': 'договор', 'storyboard': 'раскадровка', 'casting': 'кастинг',
+            'location': 'локации', 'props': 'реквизит', 'wardrobe': 'одежда/костюмы',
+            'editing': 'монтаж', 'voice': 'войсовер', 'music': 'музыка',
+            'color': 'цветокоррекция', 'photos': 'фотографии', 'cg': 'компьютерная графика',
+            'animatic': 'аниматик', 'modelling': '3D моделирование',
+            'styleshots': 'стайлшоты', 'animation': 'анимация'
+        }
+
+        block_info = []
+        for block in blocks:
+            name = block.name if hasattr(block, 'name') else block.get('name')
+            block_type = block.type if hasattr(block, 'type') else block.get('type')
+            block_id = block.id if hasattr(block, 'id') else block.get('id')
+            display = block_names_ru.get(name, name)
+            block_info.append({'name': name, 'type': block_type, 'id': block_id, 'display': display})
+
+        blocks_list = "\n".join(f"- {b['display']}" for b in block_info)
+        expected_keys = ", ".join(f'"{b["display"]}"' for b in block_info)
+
+        glossary_text = self._build_glossary_section()
+
+        prompt = f"""ПЕРЕПИСКА ПРОЕКТА "{project_name}" (от НОВЫХ к старым):
+{conversation}
+
+БЛОКИ ПРОЕКТА:
+{blocks_list}
+
+ЗАДАЧА: Определи ТЕКУЩИЙ статус КАЖДОГО блока. Верни JSON объект.
+
+ПРАВИЛА:
+1. Переписка от НОВЫХ к СТАРЫМ. Бери инфо из САМЫХ СВЕЖИХ сообщений.
+2. КРИТИЧНО: Новое ВСЕГДА перекрывает старое. "можно забирать", "получили ок", "согласовано", "утверждено" → итог = "Согласовано"
+3. Пиши ТОЛЬКО итог на СЕЙЧАС. НЕ перечисляй историю.
+4. Максимум 2 буллета через "- " на блок. Короткие предложения.
+5. В конце каждого буллета — тег [#число] из переписки.
+6. Блок не упоминается → "информация отсутствует"
+7. Без markdown. Без заголовков. Только факты.
+8. КРИТИЧНО ДЛЯ ПРЕ-ПРОДАКШН: Блоки договор, сценарий, кастинг, костюмы, локация, реквизит — это ПРЕ-продакшн. Если в переписке идёт обсуждение ПОСТ-продакшн (выпуски, монтаж, рыбы, графика, музыка), значит пре-продакшн УЖЕ ЗАВЕРШЁН. Пиши "Согласовано" для пре-продакшн блоков, ЕСЛИ нет КОНКРЕТНОЙ проблемы ИМЕННО с этим блоком (например "сценарий не утверждён" или "проблемы с кастингом"). Фразы "клиент вернётся по выпускам к вторнику", "ОС по рыбам" — это НЕ про сценарии, документы или кастинг!
+9. КРИТИЧНО: НЕ ДУБЛИРУЙ! Каждый факт пиши ТОЛЬКО В ОДИН блок. "Клиент будет возвращаться по выпускам частями" → ТОЛЬКО в трейлер/выпуски. НЕ в документы, НЕ в сценарии, НЕ в кастинг.
+
+ФОРМАТ ОТВЕТА (только JSON, без markdown):
+{{{expected_keys}}}
+
+Значение каждого ключа — строка со статусом (буллеты через \\n).
+
+Ответ:"""
+
+        messages = [
+            SystemMessage(content=f"""Ты — аналитик видеопродакшна. Анализируешь переписку проекта и определяешь статус каждого блока.
+
+{glossary_text}
+
+ГЛАВНОЕ ПРАВИЛО: каждый факт из переписки относится ТОЛЬКО К ОДНОМУ блоку. НЕ копируй одну и ту же информацию в разные блоки."""),
+            HumanMessage(content=prompt)
+        ]
+
+        try:
+            response = await self.llm.ainvoke(messages)
+            raw = response.content.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+                if raw.endswith("```"):
+                    raw = raw[:-3]
+                raw = raw.strip()
+
+            parsed = json.loads(raw)
+            logger.info(f"Batch analysis result: {json.dumps(parsed, ensure_ascii=False)[:500]}")
+
+            # Map display names back to block IDs
+            results = {}
+            display_to_info = {b['display']: b for b in block_info}
+            for display_name, status in parsed.items():
+                info = display_to_info.get(display_name)
+                if info:
+                    result_key = info['id'] if info['id'] else info['name']
+                    cleaned = self._postprocess_status(status)
+                    results[result_key] = cleaned
+                    logger.info(f"Analyzed {display_name}: {cleaned[:100]}... [key: {result_key}]")
+
+            # Fill in missing blocks
+            for b in block_info:
+                result_key = b['id'] if b['id'] else b['name']
+                if result_key not in results:
+                    results[result_key] = "информация отсутствует"
+                    logger.warning(f"Block {b['display']} missing from batch response, set to 'информация отсутствует'")
+
+            return results
+
+        except Exception as e:
+            logger.error(f"Batch analysis failed: {e}, falling back to per-block analysis")
+            # Fallback: analyze blocks one by one
+            return await self._analyze_blocks_individually(project_name, blocks, conversation)
+
+    async def _analyze_blocks_individually(
+        self,
+        project_name: str,
+        blocks: List[Any],
+        conversation: str
+    ) -> Dict[str, str]:
+        """Fallback: analyze blocks one by one if batch fails."""
         results = {}
-
-        logger.info(f"Analyzing {len(blocks)} blocks for project '{project_name}'")
-
         for block in blocks:
             block_name = block.name if hasattr(block, 'name') else block.get('name')
             block_type = block.type if hasattr(block, 'type') else block.get('type')
             block_id = block.id if hasattr(block, 'id') else block.get('id')
-            logger.info(f"Analyzing block: {block_name} ({block_type})")
 
             prompt = self._create_block_prompt(block_name, block_type, conversation)
-
-            # Debug: log full prompt for scenario-like blocks
-            if any(kw in block_name.lower() for kw in ['сценар', 'костюм', 'реквизит']):
-                logger.info(f"=== DEBUG PROMPT for {block_name} ===")
-                logger.info(f"PROMPT:\n{prompt[:2000]}")
-                logger.info(f"=== END DEBUG PROMPT ===")
-
             glossary_text = self._build_glossary_section()
 
             messages = [
                 SystemMessage(content=f"""Ты — аналитик. Извлекай ТЕКУЩИЙ статус блока из переписки.
-
 {glossary_text}
-
 ПРАВИЛА (СТРОГО!):
-1. Пиши ТОЛЬКО итоговое состояние на СЕЙЧАС. НЕ перечисляй историю.
-2. Максимум 2 буллета через "- ". Каждый — одно короткое предложение.
+1. Пиши ТОЛЬКО итоговое состояние на СЕЙЧАС.
+2. Максимум 2 буллета через "- ".
 3. В конце каждого буллета — тег источника [#число].
-4. Нет информации о блоке → пиши ровно: информация отсутствует
-5. Переписка идёт от НОВЫХ к СТАРЫМ. Бери ТОЛЬКО из самых свежих сообщений.
-6. НЕ придумывай. Без markdown. Без заголовков. Только факты."""),
+4. Нет информации → информация отсутствует
+5. Переписка от НОВЫХ к СТАРЫМ.
+6. НЕ придумывай. Без markdown."""),
                 HumanMessage(content=prompt)
             ]
-
             try:
                 response = await self.llm.ainvoke(messages)
-
                 result_key = block_id if block_id else block_name
-
-                raw_response = response.content
-                cleaned = self._postprocess_status(raw_response)
-                results[result_key] = cleaned
-
-                # Debug: log raw vs cleaned for problematic blocks
-                if any(kw in block_name.lower() for kw in ['сценар', 'костюм', 'реквизит']):
-                    logger.info(f"=== DEBUG RESPONSE for {block_name} ===")
-                    logger.info(f"RAW: {raw_response}")
-                    logger.info(f"CLEANED: {cleaned}")
-                    logger.info(f"=== END DEBUG RESPONSE ===")
-
-                logger.info(f"Analyzed {block_name}: {cleaned[:100]}... [key: {result_key}]")
-
+                results[result_key] = self._postprocess_status(response.content)
             except Exception as e:
-                logger.error(f"Error analyzing block {block_name}: {e}")
                 result_key = block_id if block_id else block_name
                 results[result_key] = f"Ошибка анализа: {str(e)}"
-
         return results
 
     def _postprocess_status(self, raw: str) -> str:
@@ -294,7 +367,8 @@ confidence — уверенность что это профессиональн
         self,
         block_name: str,
         block_type: str,
-        conversation: str
+        conversation: str,
+        other_block_names: List[str] = None
     ) -> str:
         # Для стандартных блоков переводим английское имя на русский
         block_names_ru = {
@@ -326,8 +400,13 @@ confidence — уверенность что это профессиональн
 Пиши ТОЛЬКО про эти эпизоды. Информация про другие эпизоды — НЕ относится к этому блоку.
 """
 
+        other_blocks_text = ""
+        if other_block_names:
+            other_display = [block_names_ru.get(n, n) for n in other_block_names]
+            other_blocks_text = f"\nДРУГИЕ БЛОКИ В ПРОЕКТЕ: {', '.join(other_display)}\nЕсли информация больше подходит к другому блоку — НЕ пиши её здесь.\n"
+
         prompt = f"""БЛОК: "{display_name}"
-{episode_instruction}
+{episode_instruction}{other_blocks_text}
 ПЕРЕПИСКА (от НОВЫХ к старым):
 {conversation}
 
@@ -343,6 +422,7 @@ confidence — уверенность что это профессиональн
 7. Следующие фразы означают СОГЛАСОВАНО: "можно забирать", "получили ок", "ок от клиента", "согласовано", "утверждено", "одобрено". Если видишь их — пиши "Согласовано".
 8. Без markdown. Без заголовков. Только факты.
 9. Если в переписке обсуждаются ПОСТ-продакшн блоки (выпуски, монтаж, графика, анимация, музыка), а этот блок — ПРЕ-продакшн (сценарий, кастинг, костюмы, локация, реквизит) и нет ЯВНЫХ проблем с ним — он уже утверждён.
+10. НЕ ДУБЛИРУЙ информацию между блоками. Каждый факт относится ТОЛЬКО к одному блоку. Если сообщение не упоминает КОНКРЕТНО "{display_name}" или его синонимы — НЕ используй его для этого блока. Общие фразы типа "клиент вернётся с ОС" без указания блока — ИГНОРИРУЙ.
 
 ПРИМЕРЫ:
 Блок не упоминается → информация отсутствует
