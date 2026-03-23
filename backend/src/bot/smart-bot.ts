@@ -14,6 +14,56 @@ import {
 
 const MANUAL_STATUS_MAX_AGE_DAYS = 3;
 
+// Получить статусы блоков — из кеша или запустить AI-анализ
+async function getOrAnalyzeStatuses(projectId: number, projectName: string, activeBlocks: any[]): Promise<any[]> {
+  let allStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
+
+  // Проверяем, есть ли блоки без AI-статуса
+  const missingBlocks = activeBlocks.filter(block => {
+    const blockKey = block.id || block.name;
+    return !allStatuses.find((s: any) => s.block_id === blockKey && s.status_analysis);
+  });
+
+  if (missingBlocks.length > 0) {
+    logger.info(`On-demand analysis: ${missingBlocks.length}/${activeBlocks.length} blocks missing for project ${projectId}`);
+    try {
+      const messages = await SupabaseClient.getLastMessagesForProject(projectId, 200);
+      if (messages.length > 0) {
+        const conversationText = await SupabaseClient.formatConversationWithRoles(messages);
+        const analysisResults = await AIServiceClient.analyzeDynamicBlocks({
+          projectId,
+          projectName,
+          blocks: missingBlocks,
+          conversation: conversationText
+        });
+
+        // Save results to cache
+        for (const block of missingBlocks) {
+          const blockKey = block.id || block.name;
+          const newStatus = analysisResults[blockKey];
+          if (newStatus) {
+            await SupabaseClient.upsertCustomBlockStatus({
+              project_id: projectId,
+              block_id: block.id!,
+              block_name: block.name,
+              block_type: block.type,
+              status_analysis: newStatus
+            });
+          }
+        }
+
+        // Reload statuses from cache
+        allStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
+        logger.info(`On-demand analysis complete: ${Object.keys(analysisResults).length} blocks analyzed`);
+      }
+    } catch (error) {
+      logger.error(`On-demand analysis failed for project ${projectId}:`, error);
+    }
+  }
+
+  return allStatuses;
+}
+
 // Конвертация markdown из AI-ответа в Telegram HTML
 function markdownToHtml(text: string): string {
   let result = text;
@@ -853,8 +903,8 @@ export class SmartBot {
         // Ручные статусы из дашборда (приоритет)
         const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
 
-        // AI-статусы из custom_block_statuses
-        const allStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
+        // AI-статусы из custom_block_statuses (с on-demand анализом)
+        const allStatuses = await getOrAnalyzeStatuses(projectId, project.project_name, activeBlocks);
 
         const statusMap: Record<string, string> = {};
         for (const block of activeBlocks) {
@@ -1752,7 +1802,7 @@ export class SmartBot {
         }
 
         const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
-        const allStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
+        const allStatuses = await getOrAnalyzeStatuses(projectId, project.project_name, activeBlocks);
 
         const statusMap: Record<string, string> = {};
         for (const block of activeBlocks) {
@@ -1880,7 +1930,7 @@ export class SmartBot {
           }
 
           const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
-          const allStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
+          const allStatuses = await getOrAnalyzeStatuses(projectId, project.project_name, activeBlocks);
           const statusMap: Record<string, string> = {};
           for (const block of activeBlocks) {
             const blockKey = block.id || block.name;
@@ -2027,7 +2077,7 @@ export class SmartBot {
 
         const activeBlocks = await DashboardClient.getActiveBlocks(project.project_name);
         const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
-        const allStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
+        const allStatuses = await getOrAnalyzeStatuses(projectId, project.project_name, activeBlocks);
 
         const statusMap: Record<string, string> = {};
         for (const block of activeBlocks) {
@@ -2088,7 +2138,7 @@ export class SmartBot {
 
         const activeBlocks = await DashboardClient.getActiveBlocks(project.project_name);
         const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
-        const allStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
+        const allStatuses = await getOrAnalyzeStatuses(projectId, project.project_name, activeBlocks);
 
         const statusMap: Record<string, string> = {};
         for (const block of activeBlocks) {
@@ -2672,7 +2722,7 @@ export class SmartBot {
         }
 
         const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
-        const allStatuses = await SupabaseClient.getCustomBlockStatuses(project.project_id);
+        const allStatuses = await getOrAnalyzeStatuses(project.project_id, project.project_name, activeBlocks);
         const statusMap: Record<string, string> = {};
         for (const block of activeBlocks) {
           const blockKey = block.id || block.name;
@@ -2911,7 +2961,7 @@ export class SmartBot {
         return;
       }
 
-      const allStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
+      const allStatuses = await getOrAnalyzeStatuses(projectId, project.project_name, activeBlocks);
 
       await ctx.reply('🤖 Анализирую вашу корректировку...');
 
@@ -3212,7 +3262,7 @@ ${currentStatusContext}
     try {
       const activeBlocks = await DashboardClient.getActiveBlocks(project.project_name);
 
-      const allStatuses = await SupabaseClient.getCustomBlockStatuses(project.project_id);
+      const allStatuses = await getOrAnalyzeStatuses(project.project_id, project.project_name, activeBlocks);
 
       let msg = `Название проекта:\n${project.project_name}\n\n`;
       msg += `Информация о статусе проекта в структурированном виде:\n`;

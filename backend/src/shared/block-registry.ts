@@ -146,12 +146,14 @@ export function categorizeStatus(status: string): 'important' | 'in_progress' | 
     return 'no_info';
   }
 
-  if (IMPORTANT_KEYWORDS.some(kw => lower.includes(kw))) {
-    return 'important';
-  }
-
+  // APPROVED проверяем ДО IMPORTANT — если статус содержит "Согласовано", это approved
+  // даже если есть слова вроде "отказался" (решение принято ≠ проблема)
   if (APPROVED_KEYWORDS.some(kw => lower.includes(kw))) {
     return 'approved';
+  }
+
+  if (IMPORTANT_KEYWORDS.some(kw => lower.includes(kw))) {
+    return 'important';
   }
 
   if (DATE_PATTERN.test(status)) {

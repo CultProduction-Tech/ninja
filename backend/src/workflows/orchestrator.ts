@@ -307,67 +307,82 @@ function formatUpdateText(
   const sections: string[] = [];
   const prefix = dryRun ? '[DRY RUN - сохранено в projects_test]\n\n' : '';
 
+  // Маркер по категории — стандартные кружочки (как в status-scheduler)
+  const marker = (cat: string) => {
+    switch (cat) {
+      case 'approved': return '🟢';
+      case 'important': return '🔴';
+      case 'dates':
+      case 'in_progress': return '🟡';
+      default: return '⚪';
+    }
+  };
+
+  // Кастомные эмодзи для заголовков фаз
+  const customPre = process.env.CUSTOM_EMOJI_YELLOW;
+  const customPost = process.env.CUSTOM_EMOJI_RED;
+  const preHeader = customPre
+    ? `<tg-emoji emoji-id="${customPre}">🩷</tg-emoji> Пре-продакшн:`
+    : '🩷 Пре-продакшн:';
+  const postHeader = customPost
+    ? `<tg-emoji emoji-id="${customPost}">🖤</tg-emoji> Пост-продакшн:`
+    : '🖤 Пост-продакшн:';
+
   if (format === 'короткий') {
-    const important = changedStatuses.filter(s => s.category === 'important');
-    const approved = changedStatuses.filter(s => s.category === 'approved');
-    const inProgress = changedStatuses.filter(s => s.category === 'in_progress');
+    let num = 1;
+    const lines: string[] = [];
+    const approvedNames: string[] = [];
 
-    if (inProgress.length > 0) {
-      sections.push(inProgress.map(s => `📍 ${s.name}\n${s.status}`).join('\n\n'));
+    for (const s of changedStatuses) {
+      if (s.category === 'approved') {
+        approvedNames.push(s.name);
+        continue;
+      }
+      const brief = s.status.split('\n')[0].trim();
+      lines.push(`${num}. ${marker(s.category)}${s.name}\n${brief}`);
+      num++;
     }
 
-    if (approved.length > 0) {
-      sections.push('✅ Согласовано:\n' + approved.map(s => `- ${s.name}`).join('\n'));
+    if (approvedNames.length > 0) {
+      lines.push(`${num}. ${marker('approved')}Согласовано\n${approvedNames.join(', ')}`);
     }
 
-    if (important.length > 0) {
-      sections.push('❓ Важно:\n' + important.map(s => `${s.status}`).join('\n\n'));
-    }
+    sections.push(lines.join('\n\n'));
 
   } else {
     // Длинный формат — группировка по этапам
     const preStatuses = changedStatuses.filter(s => s.phase === 'pre');
     const postStatuses = changedStatuses.filter(s => s.phase === 'post');
 
-    const formatPhase = (phaseStatuses: StatusItem[]): string[] => {
-      const phaseSections: string[] = [];
+    const formatPhase = (phaseStatuses: StatusItem[]): string => {
+      let num = 1;
+      const lines: string[] = [];
+      const importantBlocks: string[] = [];
 
-      const important = phaseStatuses.filter(s => s.category === 'important');
-      const inProgress = phaseStatuses.filter(s => s.category === 'in_progress');
-      const approved = phaseStatuses.filter(s => s.category === 'approved');
-      const dates = phaseStatuses.filter(s => s.category === 'dates');
+      for (const s of phaseStatuses) {
+        lines.push(`${num}. ${marker(s.category)}${s.name}\n${s.status}`);
+        num++;
 
-      if (important.length > 0) {
-        phaseSections.push('❓ Важные вопросы:\n' + important.map(s => `${s.status}`).join('\n\n'));
+        if (s.category === 'important') {
+          importantBlocks.push(`- ${s.name}: ${s.status.split('\n')[0].trim()}`);
+        }
       }
 
-      if (inProgress.length > 0) {
-        phaseSections.push(inProgress.map(s => `📍 ${s.name}\n${s.status}`).join('\n\n'));
+      let result = lines.join('\n\n');
+
+      if (importantBlocks.length > 0) {
+        result += '\n\n‼️ Ждём от клиента:\n' + importantBlocks.join('\n');
       }
 
-      if (approved.length > 0) {
-        phaseSections.push('✅ Согласовано:\n' + approved.map(s => `- ${s.name}`).join('\n'));
-      }
-
-      if (dates.length > 0) {
-        phaseSections.push('‼️ Важные даты:\n' + dates.map(s => `${s.status}`).join('\n\n'));
-      }
-
-      return phaseSections;
+      return result;
     };
 
     if (preStatuses.length > 0) {
-      const preSections = formatPhase(preStatuses);
-      if (preSections.length > 0) {
-        sections.push('🎬 Пре-продакшн:\n\n' + preSections.join('\n\n'));
-      }
+      sections.push(preHeader + '\n\n' + formatPhase(preStatuses));
     }
 
     if (postStatuses.length > 0) {
-      const postSections = formatPhase(postStatuses);
-      if (postSections.length > 0) {
-        sections.push('🎞️ Пост-продакшн:\n\n' + postSections.join('\n\n'));
-      }
+      sections.push(postHeader + '\n\n' + formatPhase(postStatuses));
     }
   }
 

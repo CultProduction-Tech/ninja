@@ -21,6 +21,14 @@ class StatusAnalyzer:
             temperature=0.1,
             max_tokens=400,
         )
+        # Separate LLM for batch block analysis — needs much more tokens
+        self.batch_llm = ChatOpenAI(
+            model=settings.openrouter_model,
+            openai_api_key=settings.openrouter_api_key,
+            openai_api_base="https://openrouter.ai/api/v1",
+            temperature=0.1,
+            max_tokens=3000,
+        )
 
     async def chat(
         self,
@@ -199,6 +207,26 @@ confidence — уверенность что это профессиональн
             'styleshots': 'стайлшоты', 'animation': 'анимация'
         }
 
+        # Detailed descriptions so AI understands what each block means
+        block_descriptions = {
+            'documents': 'ТОЛЬКО юридические документы: договор, смета, акты, счета, закрывающие документы. НЕ сценарии, НЕ контент.',
+            'storyboard': 'ТОЛЬКО текст/содержание сценария. НЕ монтаж, НЕ рыбы, НЕ выпуски.',
+            'casting': 'ТОЛЬКО утверждение актёров/героев/экспертов для съёмок. НЕ посты, НЕ контент.',
+            'location': 'ТОЛЬКО место съёмок: студия, локация, площадка.',
+            'props': 'ТОЛЬКО физический реквизит на площадке: предметы, декорации, элементы сета.',
+            'wardrobe': 'ТОЛЬКО одежда/костюмы героев для съёмок.',
+            'editing': 'Монтаж видео, сборка, рыбы, смысловой монтаж.',
+            'voice': 'Войсовер, озвучка, дикторский текст.',
+            'music': 'Музыка, треки, саунд-дизайн, SFX.',
+            'color': 'Цветокоррекция, грейдинг готового видео.',
+            'photos': 'Фотографии: съёмка, ретушь, отбор фото.',
+            'cg': 'Компьютерная графика, CG-заставки, VFX, ИИ-генерация.',
+            'animatic': 'Аниматик, раскадровка в движении.',
+            'modelling': '3D моделирование объектов.',
+            'styleshots': 'Стайлшоты, визуальные референсы стиля.',
+            'animation': 'Анимация, моушн-дизайн.',
+        }
+
         block_info = []
         for block in blocks:
             name = block.name if hasattr(block, 'name') else block.get('name')
@@ -207,7 +235,9 @@ confidence — уверенность что это профессиональн
             display = block_names_ru.get(name, name)
             block_info.append({'name': name, 'type': block_type, 'id': block_id, 'display': display})
 
-        blocks_list = "\n".join(f"- {b['display']}" for b in block_info)
+        blocks_list = "\n".join(
+            f"- {b['display']}: {block_descriptions.get(b['name'], '')}" for b in block_info
+        )
         expected_keys = ", ".join(f'"{b["display"]}"' for b in block_info)
 
         glossary_text = self._build_glossary_section()
@@ -228,7 +258,10 @@ confidence — уверенность что это профессиональн
 5. В конце каждого буллета — тег [#число] из переписки.
 6. Блок не упоминается → "информация отсутствует"
 7. Без markdown. Без заголовков. Только факты.
-8. КРИТИЧНО ДЛЯ ПРЕ-ПРОДАКШН: Блоки договор, сценарий, кастинг, костюмы, локация, реквизит — это ПРЕ-продакшн. Если в переписке идёт обсуждение ПОСТ-продакшн (выпуски, монтаж, рыбы, графика, музыка), значит пре-продакшн УЖЕ ЗАВЕРШЁН. Пиши "Согласовано" для пре-продакшн блоков, ЕСЛИ нет КОНКРЕТНОЙ проблемы ИМЕННО с этим блоком (например "сценарий не утверждён" или "проблемы с кастингом"). Фразы "клиент вернётся по выпускам к вторнику", "ОС по рыбам" — это НЕ про сценарии, документы или кастинг!
+8. АБСОЛЮТНЫЙ ЗАПРЕТ НА ГАЛЛЮЦИНАЦИИ: Пиши ТОЛЬКО то, что ДОСЛОВНО написано в переписке. НИКОГДА не додумывай результат. Если кто-то задал вопрос, но ответа НЕТ в переписке — пиши "Вопрос открыт" или "информация отсутствует". НЕ придумывай ответ! Пример: если написано "а что решили насчет штор?" но ответа нет — НЕ пиши "отказались от штор". Пиши "Решение по шторам не зафиксировано".
+9. КРИТИЧНО ДЛЯ ПРЕ-ПРОДАКШН: Блоки договор, сценарий, кастинг, костюмы, локация, реквизит — это ПРЕ-продакшн. Если в переписке идёт обсуждение ПОСТ-продакшн (выпуски, монтаж, рыбы, графика, музыка, CG, заставки), значит пре-продакшн УЖЕ ЗАВЕРШЁН. Пиши "Согласовано" для ВСЕХ пре-продакшн блоков, КРОМЕ случаев когда есть КОНКРЕТНАЯ фраза ИМЕННО про этот блок (например "сценарий НЕ утверждён", "проблемы с кастингом", "договор не подписан").
+   ВАЖНО: "дедлайн до понедельника", "ОС по рыбам", "возвращаться по выпускам" — это про ПОСТ-продакшн, НЕ про документы/сценарии/кастинг!
+   ВАЖНО: Не придумывай факты! Если в переписке НЕТ прямого упоминания проблемы с блоком — пиши "Согласовано".
 9. КРИТИЧНО: НЕ ДУБЛИРУЙ! Каждый факт пиши ТОЛЬКО В ОДИН блок. "Клиент будет возвращаться по выпускам частями" → ТОЛЬКО в трейлер/выпуски. НЕ в документы, НЕ в сценарии, НЕ в кастинг.
 
 ФОРМАТ ОТВЕТА (только JSON, без markdown):
@@ -243,12 +276,13 @@ confidence — уверенность что это профессиональн
 
 {glossary_text}
 
-ГЛАВНОЕ ПРАВИЛО: каждый факт из переписки относится ТОЛЬКО К ОДНОМУ блоку. НЕ копируй одну и ту же информацию в разные блоки."""),
+ГЛАВНОЕ ПРАВИЛО: каждый факт из переписки относится ТОЛЬКО К ОДНОМУ блоку. НЕ копируй одну и ту же информацию в разные блоки.
+ВТОРОЕ ПРАВИЛО: НИКОГДА не придумывай факты. Пиши ТОЛЬКО то, что явно написано в сообщениях. Если вопрос задан но ответ не зафиксирован — так и пиши."""),
             HumanMessage(content=prompt)
         ]
 
         try:
-            response = await self.llm.ainvoke(messages)
+            response = await self.batch_llm.ainvoke(messages)
             raw = response.content.strip()
             if raw.startswith("```"):
                 raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
@@ -277,12 +311,109 @@ confidence — уверенность что это профессиональн
                     results[result_key] = "информация отсутствует"
                     logger.warning(f"Block {b['display']} missing from batch response, set to 'информация отсутствует'")
 
+            # Post-processing: fix common AI mistakes
+            results = self._postprocess_batch_results(results, block_info)
+
             return results
 
         except Exception as e:
             logger.error(f"Batch analysis failed: {e}, falling back to per-block analysis")
-            # Fallback: analyze blocks one by one
             return await self._analyze_blocks_individually(project_name, blocks, conversation)
+
+    def _postprocess_batch_results(self, results: Dict[str, str], block_info: List[Dict]) -> Dict[str, str]:
+        """Fix common AI mistakes: wrong categorization and duplication."""
+        import re
+
+        # Build type map: block_key -> block_type (pre/post)
+        pre_production_keys = set()
+        post_production_keys = set()
+        PRE_BLOCK_NAMES = {'documents', 'storyboard', 'casting', 'location', 'props', 'wardrobe'}
+        for b in block_info:
+            key = b['id'] if b['id'] else b['name']
+            block_type = b.get('type', '')
+            if b['name'] in PRE_BLOCK_NAMES or block_type in ('pre', 'custom_pre', 'standard'):
+                # Standard blocks are pre-production by default, custom_pre explicitly
+                # But standard post-production blocks (editing, music, etc.) should be post
+                POST_BLOCK_NAMES = {'editing', 'voice', 'music', 'color', 'photos', 'cg', 'animatic', 'modelling', 'styleshots', 'animation'}
+                if b['name'] in POST_BLOCK_NAMES:
+                    post_production_keys.add(key)
+                elif block_type == 'custom_post':
+                    post_production_keys.add(key)
+                else:
+                    pre_production_keys.add(key)
+            elif block_type == 'custom_post':
+                post_production_keys.add(key)
+            else:
+                post_production_keys.add(key)
+
+        # Post-production keywords that should NOT appear in pre-production blocks
+        POST_KEYWORDS = [
+            'рыб', 'монтаж', 'выпуск', 'заставк', 'трейлер', 'график', 'музык',
+            'цветокоррекц', 'анимац', 'cg', 'vfx', 'озвучк', 'войсовер',
+            'мастер', 'превью', 'ролик', 'видео', 'сборк'
+        ]
+
+        # Check if there are any post-production blocks with real content
+        has_post_content = any(
+            key in post_production_keys and results.get(key, '') not in ('информация отсутствует', 'Согласовано', '')
+            for key in results
+        )
+
+        logger.info(f"Post-process: pre_keys={pre_production_keys}, post_keys={post_production_keys}, has_post={has_post_content}")
+        logger.info(f"Post-process: block_info names={[(b['name'], b['type'], b['id']) for b in block_info]}")
+
+        if has_post_content:
+            # Fix pre-production blocks that contain post-production info
+            for key in pre_production_keys:
+                status = results.get(key, '')
+                status_lower = status.lower()
+
+                # Check if status contains post-production keywords
+                has_post_keyword = any(kw in status_lower for kw in POST_KEYWORDS)
+
+                if has_post_keyword:
+                    # Check if there's also genuine pre-production info
+                    lines = [l.strip() for l in status.split('\n') if l.strip()]
+                    clean_lines = []
+                    for line in lines:
+                        line_lower = line.lower()
+                        if not any(kw in line_lower for kw in POST_KEYWORDS):
+                            clean_lines.append(line)
+
+                    if clean_lines:
+                        results[key] = '\n'.join(clean_lines)
+                        logger.info(f"Post-process: cleaned post-prod keywords from pre-prod block {key}")
+                    else:
+                        results[key] = '- Согласовано'
+                        logger.info(f"Post-process: reset pre-prod block {key} to 'Согласовано' (had only post-prod info)")
+
+        # Deduplication: find blocks with very similar content
+        from difflib import SequenceMatcher
+        keys_list = list(results.keys())
+        for i in range(len(keys_list)):
+            for j in range(i + 1, len(keys_list)):
+                k1, k2 = keys_list[i], keys_list[j]
+                s1, s2 = results.get(k1, ''), results.get(k2, '')
+                if not s1 or not s2 or s1 == 'информация отсутствует' or s2 == 'информация отсутствует':
+                    continue
+                if s1 == '- Согласовано' or s2 == '- Согласовано':
+                    continue
+
+                similarity = SequenceMatcher(None, s1.lower(), s2.lower()).ratio()
+                if similarity > 0.6:
+                    # Keep the one in a more specific block, reset the other
+                    # Prefer post-production blocks over pre-production
+                    if k1 in pre_production_keys and k2 in post_production_keys:
+                        results[k1] = '- Согласовано'
+                        logger.info(f"Post-process: dedup {k1} (pre) vs {k2} (post), reset {k1}")
+                    elif k2 in pre_production_keys and k1 in post_production_keys:
+                        results[k2] = '- Согласовано'
+                        logger.info(f"Post-process: dedup {k2} (pre) vs {k1} (post), reset {k2}")
+                    else:
+                        # Both post-production — keep the first, make second generic
+                        logger.info(f"Post-process: dedup {k1} vs {k2} (similarity={similarity:.2f})")
+
+        return results
 
     async def _analyze_blocks_individually(
         self,
