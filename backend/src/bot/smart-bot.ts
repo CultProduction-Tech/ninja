@@ -16,16 +16,22 @@ const MANUAL_STATUS_MAX_AGE_DAYS = 3;
 
 // Получить статусы блоков — из кеша или запустить AI-анализ
 async function getOrAnalyzeStatuses(projectId: number, projectName: string, activeBlocks: any[]): Promise<any[]> {
+  const CACHE_MAX_AGE_HOURS = 4;
   let allStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
 
-  // Проверяем, есть ли блоки без AI-статуса
-  const missingBlocks = activeBlocks.filter(block => {
+  // Проверяем: блоки без статуса ИЛИ со старым кэшем (> 4 часов)
+  const now = Date.now();
+  const blocksToAnalyze = activeBlocks.filter(block => {
     const blockKey = block.id || block.name;
-    return !allStatuses.find((s: any) => s.block_id === blockKey && s.status_analysis);
+    const cached = allStatuses.find((s: any) => s.block_id === blockKey && s.status_analysis);
+    if (!cached) return true; // нет в кэше
+    const ageHours = (now - new Date(cached.updated_at).getTime()) / 3600000;
+    return ageHours >= CACHE_MAX_AGE_HOURS; // кэш устарел
   });
 
-  if (missingBlocks.length > 0) {
-    logger.info(`On-demand analysis: ${missingBlocks.length}/${activeBlocks.length} blocks missing for project ${projectId}`);
+  if (blocksToAnalyze.length > 0) {
+    const reason = blocksToAnalyze.length === activeBlocks.length ? 'all missing/stale' : `${blocksToAnalyze.length}/${activeBlocks.length} missing/stale`;
+    logger.info(`On-demand analysis: ${reason} for project ${projectId}`);
     try {
       const messages = await SupabaseClient.getLastMessagesForProject(projectId, 200);
       if (messages.length > 0) {
@@ -33,12 +39,12 @@ async function getOrAnalyzeStatuses(projectId: number, projectName: string, acti
         const analysisResults = await AIServiceClient.analyzeDynamicBlocks({
           projectId,
           projectName,
-          blocks: missingBlocks,
+          blocks: blocksToAnalyze,
           conversation: conversationText
         });
 
         // Save results to cache
-        for (const block of missingBlocks) {
+        for (const block of blocksToAnalyze) {
           const blockKey = block.id || block.name;
           const newStatus = analysisResults[blockKey];
           if (newStatus) {
