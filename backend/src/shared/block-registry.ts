@@ -137,17 +137,41 @@ export function getBlockEmoji(blockName: string): string {
 }
 
 /**
- * Категоризировать статус по ключевым словам.
+ * Извлечь AI-цвет из префикса статуса: "[green]текст" → { color: "green", text: "текст" }
+ */
+export function extractAIColor(status: string): { color: string | null; text: string } {
+  const match = status.match(/^\[(green|red|yellow|gray)\]/);
+  if (match) {
+    return { color: match[1], text: status.slice(match[0].length) };
+  }
+  return { color: null, text: status };
+}
+
+const AI_COLOR_MAP: Record<string, 'approved' | 'important' | 'in_progress' | 'no_info'> = {
+  'green': 'approved',
+  'red': 'important',
+  'yellow': 'in_progress',
+  'gray': 'no_info',
+};
+
+/**
+ * Категоризировать статус.
+ * Приоритет: AI-цвет (нейронка понимает контекст) → ключевые слова (фоллбэк).
  */
 export function categorizeStatus(status: string): 'important' | 'in_progress' | 'approved' | 'dates' | 'no_info' {
-  const lower = status.toLowerCase();
+  // 1. AI-цвет — нейронка сама определила категорию
+  const { color, text } = extractAIColor(status);
+  if (color && AI_COLOR_MAP[color]) {
+    return AI_COLOR_MAP[color];
+  }
+
+  // 2. Фоллбэк на ключевые слова (для старых кэшированных статусов без цвета)
+  const lower = text.toLowerCase();
 
   if (lower.includes('информация отсутствует') || lower.includes('нет информации')) {
     return 'no_info';
   }
 
-  // APPROVED проверяем ДО IMPORTANT — если статус содержит "Согласовано", это approved
-  // даже если есть слова вроде "отказался" (решение принято ≠ проблема)
   if (APPROVED_KEYWORDS.some(kw => lower.includes(kw))) {
     return 'approved';
   }
@@ -156,7 +180,7 @@ export function categorizeStatus(status: string): 'important' | 'in_progress' | 
     return 'important';
   }
 
-  if (DATE_PATTERN.test(status)) {
+  if (DATE_PATTERN.test(text)) {
     return 'dates';
   }
 

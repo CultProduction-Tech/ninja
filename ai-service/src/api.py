@@ -183,6 +183,29 @@ async def classify_intent(request: ClassifyIntentRequest):
         return ClassifyIntentResponse(intent="GENERAL")
 
 
+class ResolveProjectRequest(BaseModel):
+    message: str
+    projects: List[str]  # numbered list of project names
+
+
+class ResolveProjectResponse(BaseModel):
+    index: int  # 1-based index, 0 = not determined
+
+
+@app.post("/resolve/project", response_model=ResolveProjectResponse)
+async def resolve_project(request: ResolveProjectRequest):
+    try:
+        index = await status_analyzer.resolve_project(
+            message=request.message,
+            projects=request.projects
+        )
+        logger.info(f"Resolved project: '{request.message[:50]}' → index {index}")
+        return ResolveProjectResponse(index=index)
+    except Exception as e:
+        logger.error(f"Error resolving project: {e}")
+        return ResolveProjectResponse(index=0)
+
+
 class DashboardClassifyBlock(BaseModel):
     name: str
     status: str

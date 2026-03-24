@@ -234,6 +234,47 @@ function isAdminUser(userId: string): boolean {
   return ADMIN_IDS.has(userId);
 }
 
+// Парсинг порядковых числительных: "первый" → 1, "второму" → 2, etc.
+const ORDINALS: Record<string, number> = {
+  'перв': 1, 'втор': 2, 'трет': 3, 'четверт': 4, 'четвёрт': 4,
+  'пят': 5, 'шест': 6, 'седьм': 7, 'восьм': 8, 'девят': 9, 'десят': 10,
+};
+
+function parseOrdinalNumber(text: string): number | null {
+  const lower = text.toLowerCase();
+  // Цифровой номер: "проект 3", "номер 3", "#3", "3 проект"
+  const numMatch = lower.match(/(?:проект|номер|#)\s*(?:номер\s*)?(\d+)/) || lower.match(/(\d+)\s*(?:проект|номер)/);
+  if (numMatch) return parseInt(numMatch[1], 10);
+  // Порядковые: "по первому", "давай второй", "третий проект"
+  for (const [stem, num] of Object.entries(ORDINALS)) {
+    if (lower.includes(stem)) return num;
+  }
+  return null;
+}
+
+// Очистка ответа AI: убираем "(источник) (t.me/...)" и лишний мусор
+function cleanAIAnswer(text: string): string {
+  return text
+    // Убираем "(источник) (https://t.me/...)" — ссылки на исходные сообщения
+    .replace(/\s*\(источник\)\s*\(https?:\/\/t\.me\/[^)]*\)/gi, '')
+    // Убираем одиночные "(источник)"
+    .replace(/\s*\(источник\)/gi, '')
+    // Убираем ссылки на t.me/c/... (внутренние ссылки на сообщения чата)
+    .replace(/\s*https?:\/\/t\.me\/c\/\d+\/\d+/g, '')
+    // Убираем нерезолвленные теги [#123]
+    .replace(/\s*\[#\d+\]/g, '');
+}
+
+// Попытка найти проект по номеру из сохранённого списка
+function resolveProjectByNumber(text: string, savedList: any[] | undefined): any | null {
+  if (!savedList) return null;
+  const num = parseOrdinalNumber(text);
+  if (num === null) return null;
+  const idx = num - 1;
+  if (idx >= 0 && idx < savedList.length) return savedList[idx];
+  return null;
+}
+
 export class SmartBot {
   private bot: Telegraf;
   private userContext: Map<string, { projectId: number; timestamp: number }> = new Map();
@@ -2384,11 +2425,13 @@ export class SmartBot {
         ? await SupabaseClient.getAllProjects()
         : await this.getUserProjects(userId);
 
+      let context = this.userContext.get(userId);
+
       // === 1. Проверяем, не просит ли пользователь статус ===
       const statusKeywords = ['статус', 'status', 'как дела по проект', 'что по проект', 'как там по проект', 'что там по проект', 'че там по проект', 'чё там по проект', 'че по проект', 'чё по проект'];
       const msgLowerCheck = userMessage.toLowerCase();
-      // "проект 3", "номер 3", "проект номер 3", "5 проект", "про 5 проект" — тоже запрос статуса
-      const hasProjectNumber = (/(?:проект|номер|#)\s*(?:номер\s*)?\d+/.test(msgLowerCheck) || /\d+\s*(?:проект|номер)/.test(msgLowerCheck)) && this.userProjectMap.has(userId);
+      // "проект 3", "номер 3", "первый проект", "давай по второму" — тоже запрос статуса
+      const hasProjectNumber = parseOrdinalNumber(msgLowerCheck) !== null && this.userProjectMap.has(userId);
 
       // Если в сообщении есть дополнительный вопрос кроме запроса статуса — это PROJECT_QUESTION, не статус
       const questionIndicators = [
@@ -2403,7 +2446,36 @@ export class SmartBot {
       const hasMultipleSentences = (userMessage.match(/[.!?]\s+[а-яА-Яa-zA-Z]/g) || []).length > 0;
       const isStatusWithQuestion = hasStatusKeyword && (hasQuestionIndicator || hasMultipleSentences);
 
-      const isAskingForStatus = !isStatusWithQuestion && (hasProjectNumber || hasStatusKeyword);
+      // Если есть lastQA с незавершённым вопросом и пользователь просто выбирает проект по номеру —
+      // это ответ на предыдущий вопрос, а не запрос статуса
+      const pendingQA = this.lastQA.get(userId);
+      const hasPendingQuestion = pendingQA && pendingQA.answer === '' && (Date.now() - pendingQA.timestamp < CONTEXT_TTL);
+      const isJustProjectSelection = hasProjectNumber && !hasStatusKeyword && hasPendingQuestion;
+
+      const isAskingForStatus = !isStatusWithQuestion && !isJustProjectSelection && (hasProjectNumber || hasStatusKeyword);
+
+      if (isJustProjectSelection) {
+        // Пользователь выбирает проект для предыдущего вопроса ("по первому" после "кинь ссылки")
+        const savedList = this.userProjectMap.get(userId);
+        let selectedProject = resolveProjectByNumber(userMessage, savedList);
+        if (!selectedProject) {
+          selectedProject = findProjectByFuzzy(userMessage.toLowerCase(), userProjects);
+        }
+        if (!selectedProject && savedList) {
+          const projectNames = savedList.map((p: any) => p.project_name);
+          const aiIndex = await AIServiceClient.resolveProject(userMessage, projectNames);
+          if (aiIndex > 0 && aiIndex <= savedList.length) {
+            selectedProject = savedList[aiIndex - 1];
+          }
+        }
+        if (selectedProject) {
+          this.userContext.set(userId, { projectId: selectedProject.project_id, timestamp: Date.now() });
+          logger.info(`Project selected for pending question: ${selectedProject.project_name}, question: "${pendingQA!.question}"`);
+          // Подставляем предыдущий вопрос и пускаем дальше по flow
+          userMessage = pendingQA!.question;
+          context = { projectId: selectedProject.project_id, timestamp: Date.now() };
+        }
+      }
 
       if (isAskingForStatus) {
         await ctx.sendChatAction('typing');
@@ -2416,30 +2488,39 @@ export class SmartBot {
         const msgLower = userMessage.toLowerCase();
         let projectsToShow = userProjects;
 
-        // Проверяем номер проекта ("проект 3", "номер 3", "проект номер 3", "5 проект")
-        const numMatch = msgLower.match(/(?:проект|номер|#)\s*(?:номер\s*)?(\d+)/) || msgLower.match(/(\d+)\s*(?:проект|номер)/);
-        const savedList = this.userProjectMap.get(userId);
-        if (numMatch && savedList) {
-          const idx = parseInt(numMatch[1], 10) - 1;
-          if (idx >= 0 && idx < savedList.length) {
-            projectsToShow = [savedList[idx]];
-            this.userContext.set(userId, { projectId: savedList[idx].project_id, timestamp: Date.now() });
-            logger.info(`Project selected by number: ${idx + 1} → ${savedList[idx].project_name}`);
-          }
+        // Проверяем номер проекта ("проект 3", "номер 3", "первый", "давай по второму")
+        const selectedByNumber = resolveProjectByNumber(msgLower, this.userProjectMap.get(userId));
+        if (selectedByNumber) {
+          projectsToShow = [selectedByNumber];
+          this.userContext.set(userId, { projectId: selectedByNumber.project_id, timestamp: Date.now() });
+          logger.info(`Project selected by number: ${selectedByNumber.project_name}`);
         }
 
         if (projectsToShow.length > 1) {
           // Если номер не сработал — пробуем fuzzy
-          const mentionedProject = findProjectByFuzzy(msgLower, userProjects);
-          if (mentionedProject) {
-            projectsToShow = [mentionedProject];
+          const mentionedInStatus = findProjectByFuzzy(msgLower, userProjects);
+          if (mentionedInStatus) {
+            projectsToShow = [mentionedInStatus];
           } else {
-            const ctx2 = this.userContext.get(userId);
-            if (ctx2 && (Date.now() - ctx2.timestamp < CONTEXT_TTL)) {
-              const contextProject = userProjects.find((p: any) => p.project_id === ctx2.projectId);
-              if (contextProject) {
-                projectsToShow = [contextProject];
-                logger.info(`Status from context: project ${contextProject.project_id} (${contextProject.project_name})`);
+            // AI-fallback: спрашиваем нейронку какой проект имеется в виду
+            if (this.userProjectMap.has(userId)) {
+              const savedList = this.userProjectMap.get(userId)!;
+              const projectNames = savedList.map((p: any) => p.project_name);
+              const aiIndex = await AIServiceClient.resolveProject(userMessage, projectNames);
+              if (aiIndex > 0 && aiIndex <= savedList.length) {
+                projectsToShow = [savedList[aiIndex - 1]];
+                logger.info(`Status project resolved by AI: "${userMessage}" → ${savedList[aiIndex - 1].project_name}`);
+              }
+            }
+            // Если AI тоже не помог — контекст
+            if (projectsToShow.length > 1) {
+              const ctx2 = this.userContext.get(userId);
+              if (ctx2 && (Date.now() - ctx2.timestamp < CONTEXT_TTL)) {
+                const contextProject = userProjects.find((p: any) => p.project_id === ctx2.projectId);
+                if (contextProject) {
+                  projectsToShow = [contextProject];
+                  logger.info(`Status from context: project ${contextProject.project_id} (${contextProject.project_name})`);
+                }
               }
             }
           }
@@ -2459,7 +2540,7 @@ export class SmartBot {
       }
 
       // === 2. Определяем контекст проекта ===
-      let context = this.userContext.get(userId);
+      context = this.userContext.get(userId); // refresh after possible update in section 1
 
       if (ctx.message && 'reply_to_message' in ctx.message && ctx.message.reply_to_message) {
         const replyToMsg = ctx.message.reply_to_message;
@@ -2479,7 +2560,19 @@ export class SmartBot {
 
       // Всегда проверяем, упоминается ли проект в сообщении (для переключения контекста)
       let projectSwitched = false;
-      const mentionedProject = findProjectByFuzzy(userMessage.toLowerCase(), userProjects);
+      // Сначала пробуем по номеру ("первый", "проект 2"), потом fuzzy по названию, потом AI
+      let mentionedProject = resolveProjectByNumber(userMessage, this.userProjectMap.get(userId))
+        || findProjectByFuzzy(userMessage.toLowerCase(), userProjects);
+      // AI-fallback: если не нашли и есть сохранённый список — спрашиваем нейронку
+      if (!mentionedProject && this.userProjectMap.has(userId)) {
+        const savedList = this.userProjectMap.get(userId)!;
+        const projectNames = savedList.map((p: any) => p.project_name);
+        const aiIndex = await AIServiceClient.resolveProject(userMessage, projectNames);
+        if (aiIndex > 0 && aiIndex <= savedList.length) {
+          mentionedProject = savedList[aiIndex - 1];
+          logger.info(`Project resolved by AI: "${userMessage}" → ${mentionedProject.project_name}`);
+        }
+      }
       if (mentionedProject) {
         const oldProjectId = context?.projectId;
         // Если сообщение — просто название проекта (ответ на "какой проект?"), а в lastQA есть вопрос — повторяем вопрос для нового проекта
@@ -2614,7 +2707,30 @@ export class SmartBot {
             await ctx.telegram.deleteMessage(ctx.chat!.id, progressMsg.message_id);
           } catch (e) {}
 
-          await ctx.reply(answer, { parse_mode: 'HTML' });
+          // Убираем ВСЕ HTML-теги, оставляем голые URL — Telegram сам сделает их кликабельными
+          const cleanAnswer = answer
+            .replace(/<a\s+href="([^"]*)"[^>]*>[^<]*<\/a>/gi, '$1')  // <a href="url">text</a> → url
+            .replace(/<a\s+href="?([^">\s]*)"?[^>]*/gi, '$1')  // broken <a> tags → url
+            .replace(/<\/?[^>]*>/g, '')  // strip all remaining HTML tags
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>');
+          // Telegram лимит — 4096 символов. Разбиваем по строкам если не влезает.
+          if (cleanAnswer.length <= 4096) {
+            await ctx.reply(cleanAnswer);
+          } else {
+            const lines = cleanAnswer.split('\n');
+            let chunk = '';
+            for (const line of lines) {
+              if ((chunk + '\n' + line).length > 4000) {
+                if (chunk) await ctx.reply(chunk.trim());
+                chunk = line;
+              } else {
+                chunk += (chunk ? '\n' : '') + line;
+              }
+            }
+            if (chunk.trim()) await ctx.reply(chunk.trim());
+          }
           return;
         } catch (error: any) {
           logger.error('Error answering question from conversation:', error);
@@ -2848,9 +2964,8 @@ export class SmartBot {
 
         if (!result.needsMore) {
           logger.info(`Found answer using ${messages.length} messages`);
-          // Резолвим [#ID] в кликабельные ссылки, конвертим markdown→HTML
           const linkMap = SupabaseClient.buildMessageLinkMap(messages);
-          let answer = result.answer;
+          let answer = cleanAIAnswer(result.answer);
           if (linkMap.size > 0) {
             answer = resolveMessageLinksHtml(answer, linkMap);
           }
@@ -2860,7 +2975,7 @@ export class SmartBot {
         if (messages.length < currentLimit) {
           logger.info(`No more messages available (${messages.length} total)`);
           const linkMap = SupabaseClient.buildMessageLinkMap(messages);
-          let answer = result.answer;
+          let answer = cleanAIAnswer(result.answer);
           if (linkMap.size > 0) {
             answer = resolveMessageLinksHtml(answer, linkMap);
           }

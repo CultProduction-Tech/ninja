@@ -267,12 +267,18 @@ confidence — уверенность что это профессиональн
 9. КРИТИЧНО ДЛЯ ПРЕ-ПРОДАКШН: Блоки договор, сценарий, кастинг, костюмы, локация, реквизит — это ПРЕ-продакшн. Если в переписке идёт обсуждение ПОСТ-продакшн (выпуски, монтаж, рыбы, графика, музыка, CG, заставки), значит пре-продакшн УЖЕ ЗАВЕРШЁН. Пиши "Согласовано" для ВСЕХ пре-продакшн блоков, КРОМЕ случаев когда есть КОНКРЕТНАЯ фраза ИМЕННО про этот блок (например "сценарий НЕ утверждён", "проблемы с кастингом", "договор не подписан").
    ВАЖНО: "дедлайн до понедельника", "ОС по рыбам", "возвращаться по выпускам" — это про ПОСТ-продакшн, НЕ про документы/сценарии/кастинг!
    ВАЖНО: Не придумывай факты! Если в переписке НЕТ прямого упоминания проблемы с блоком — пиши "Согласовано".
-9. КРИТИЧНО: НЕ ДУБЛИРУЙ! Каждый факт пиши ТОЛЬКО В ОДИН блок. "Клиент будет возвращаться по выпускам частями" → ТОЛЬКО в трейлер/выпуски. НЕ в документы, НЕ в сценарии, НЕ в кастинг.
+10. КРИТИЧНО: НЕ ДУБЛИРУЙ! Каждый факт пиши ТОЛЬКО В ОДИН блок. "Клиент будет возвращаться по выпускам частями" → ТОЛЬКО в трейлер/выпуски. НЕ в документы, НЕ в сценарии, НЕ в кастинг.
+11. ПРАВИЛО "СОГЛАСОВАНО": Если итог блока = "Согласовано", пиши ТОЛЬКО "Согласовано". БЕЗ дополнительных комментариев, оговорок, вопросов. Согласовано означает ВСЕ вопросы по блоку закрыты (в чате, на созвоне, на съёмке). Незакрытые вопросы в чате НЕ отменяют согласование.
 
 ФОРМАТ ОТВЕТА (только JSON, без markdown):
-{{{expected_keys}}}
+Для каждого блока верни объект с двумя полями:
+- "status": строка со статусом (буллеты через \\n)
+- "color": цвет кружка — "green" (согласовано/утверждено/готово), "red" (ждём от клиента/проблема/срочно), "yellow" (в процессе/готовится), "gray" (нет информации)
 
-Значение каждого ключа — строка со статусом (буллеты через \\n).
+Пример:
+{{"documents": {{"status": "- Согласовано", "color": "green"}}, "editing": {{"status": "- Ждём ОС от клиента [#1234]", "color": "red"}}}}
+
+{{{expected_keys}}}
 
 Ответ:"""
 
@@ -300,24 +306,40 @@ confidence — уверенность что это профессиональн
 
             # Map display names back to block IDs
             results = {}
+            colors = {}  # block_key -> color from AI
             display_to_info = {b['display']: b for b in block_info}
-            for display_name, status in parsed.items():
+            for display_name, value in parsed.items():
                 info = display_to_info.get(display_name)
                 if info:
                     result_key = info['id'] if info['id'] else info['name']
-                    cleaned = self._postprocess_status(status)
+                    # Support both new format {"status": "...", "color": "..."} and old format (plain string)
+                    if isinstance(value, dict):
+                        status_text = value.get('status', '')
+                        color = value.get('color', '')
+                        if color:
+                            colors[result_key] = color
+                    else:
+                        status_text = value
+                    cleaned = self._postprocess_status(status_text)
                     results[result_key] = cleaned
-                    logger.info(f"Analyzed {display_name}: {cleaned[:100]}... [key: {result_key}]")
+                    logger.info(f"Analyzed {display_name}: {cleaned[:100]}... color={colors.get(result_key, 'n/a')} [key: {result_key}]")
 
             # Fill in missing blocks
             for b in block_info:
                 result_key = b['id'] if b['id'] else b['name']
                 if result_key not in results:
                     results[result_key] = "информация отсутствует"
+                    colors[result_key] = "gray"
                     logger.warning(f"Block {b['display']} missing from batch response, set to 'информация отсутствует'")
 
             # Post-processing: fix common AI mistakes
             results = self._postprocess_batch_results(results, block_info)
+
+            # Embed AI color as prefix: [green]status text
+            for key in results:
+                color = colors.get(key, '')
+                if color:
+                    results[key] = f"[{color}]{results[key]}"
 
             return results
 
@@ -609,7 +631,9 @@ confidence — уверенность что это профессиональн
 ПРЕДЫДУЩИЙ ВОПРОС ПОЛЬЗОВАТЕЛЯ: {previous_qa['question']}
 ПРЕДЫДУЩИЙ ОТВЕТ БОТА: {previous_qa['answer']}
 
-⚠️ Учитывай предыдущий диалог! Текущий вопрос может быть уточнением или продолжением предыдущего.
+⚠️ ОБЯЗАТЕЛЬНО учитывай предыдущий диалог! Текущий вопрос — это ПРОДОЛЖЕНИЕ разговора.
+Если пользователь уточняет что-то из предыдущего ответа (например, просит конкретную ссылку, которая уже была в ответе) — используй информацию из ПРЕДЫДУЩЕГО ОТВЕТА БОТА.
+Не говори "нет информации" если информация уже была в твоём предыдущем ответе!
 """
 
         prompt = f"""Ты - ассистент проектного менеджера. Твоя задача - ответить на вопрос используя ТОЛЬКО информацию из переписки.
@@ -641,14 +665,21 @@ confidence — уверенность что это профессиональн
    - Ответь: "NEED_MORE_CONTEXT: [краткое объяснение что именно не нашел]"
    - Например: "NEED_MORE_CONTEXT: В доступной переписке нет упоминаний о переносе сроков"
 
-5. ✅ ФОРМАТИРОВАНИЕ (Telegram HTML):
-   - Используй <b>жирный</b> для имён людей и ключевых фактов
+5. ✅ ФОРМАТИРОВАНИЕ:
    - Цитаты оборачивай в «кавычки»
    - Для списков используй • (bullet point)
-   - НЕ используй Markdown (*, **, #). Только HTML-теги: <b>, <i>, <a href="">
+   - Ссылки пиши КАК ЕСТЬ (голый URL). НЕ оборачивай в HTML-теги <a>! Telegram сам сделает их кликабельными.
+   - Для выделения используй только <b>жирный</b>. НЕ используй Markdown (*, **, #).
+   - ЗАПРЕЩЕНО: <a href="...">, <i>, любые другие HTML-теги кроме <b>.
 
 6. ✅ СПЕЦИАЛЬНЫЕ СЛУЧАИ:
-   - Если вопрос про ссылки/материалы - ищи https://, drive.google, miro, notion, etc
+   - Если вопрос про ссылки/материалы:
+     • Ищи https://, drive.google, miro, notion, disk.yandex и т.д.
+     • Копируй ссылки ПОЛНОСТЬЮ, не обрезай!
+     • Формат: нумерованный список, название на одной строке, ссылка на следующей:
+       1. Название материала
+       https://полная-ссылка
+     • НЕ пиши "(источник)" и ссылки на сообщения. Только ссылки на сами материалы.
    - Если вопрос про людей - ищи имена, никнеймы, упоминания
    - Если вопрос про даты - ищи даты, числа, слова "завтра", "послезавтра", etc
 
@@ -770,6 +801,39 @@ confidence — уверенность что это профессиональн
         except Exception as e:
             logger.error(f"Error classifying dashboard statuses: {e}")
             return {}
+
+    async def resolve_project(
+        self,
+        message: str,
+        projects: list[str]
+    ) -> int:
+        """Определяет, какой проект имеет в виду пользователь. Возвращает 1-based индекс или 0."""
+        numbered = "\n".join(f"{i+1}. {p}" for i, p in enumerate(projects))
+        prompt = f"""Пользователю показали список проектов:
+
+{numbered}
+
+Пользователь ответил: "{message}"
+
+Какой номер проекта имеет в виду пользователь? Ответь ТОЛЬКО числом (1, 2, 3...).
+Если не можешь определить — ответь 0.
+
+Число:"""
+
+        try:
+            response = await self.llm.ainvoke(prompt)
+            result = response.content.strip()
+            # Извлекаем первое число из ответа
+            import re
+            match = re.search(r'\d+', result)
+            if match:
+                num = int(match.group())
+                if 1 <= num <= len(projects):
+                    return num
+            return 0
+        except Exception as e:
+            logger.error(f"Error in resolve_project: {e}")
+            return 0
 
     async def classify_intent(
         self,

@@ -7,6 +7,7 @@ import { AIServiceClient } from '../services/ai-client';
 import {
   getBlockDisplayName,
   categorizeStatus,
+  extractAIColor,
 } from '../shared/block-registry';
 import { isInQuietHours, checkWeekendPolicy } from '../utils/schedule-helpers';
 
@@ -360,7 +361,8 @@ export function formatStatusForClient(
         : block.name;
 
       const category = categorizeStatus(status);
-      statuses.push({ name: displayName, status, category, phase: block.phase || 'pre' });
+      const cleanStatus = extractAIColor(status).text; // убираем [green]/[red] префикс
+      statuses.push({ name: displayName, status: cleanStatus, category, phase: block.phase || 'pre' });
     }
   }
 
@@ -436,7 +438,9 @@ export function formatStatusForClient(
       for (const s of phaseStatuses) {
         if (s.category === 'no_info') continue;
 
-        lines.push(`${num}. ${marker(s.category)}${s.name}\n${s.status}`);
+        // Правило Татьяны: если согласовано — только "Согласовано", без доп. комментариев
+        const displayStatus = s.category === 'approved' ? '- Согласовано' : s.status;
+        lines.push(`${num}. ${marker(s.category)}${s.name}\n${displayStatus}`);
         num++;
 
         // Собираем важные вопросы отдельно
@@ -503,14 +507,14 @@ export function resolveMessageLinksHtml(text: string, linkMap: Map<number, strin
         return link ? `<a href="${link}">(источник)</a>` : null;
       })
       .filter(Boolean);
-    return links.length > 0 ? links.join(' ') : match;
+    return links.length > 0 ? links.join(' ') : '';
   });
 
   // Затем одиночные [#123]
   text = text.replace(/\[#(\d+)\]/g, (match, idStr) => {
     const id = parseInt(idStr, 10);
     const link = linkMap.get(id);
-    return link ? `<a href="${link}">(источник)</a>` : match;
+    return link ? `<a href="${link}">(источник)</a>` : '';
   });
 
   return text;

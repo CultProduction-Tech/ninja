@@ -6,6 +6,7 @@ import {
   getStandardFieldMapping,
   getBlockDisplayName,
   categorizeStatus,
+  extractAIColor,
 } from '../shared/block-registry';
 
 export async function runStatusUpdate(): Promise<Record<number, string>> {
@@ -295,7 +296,8 @@ function formatUpdateText(
       : block.name;
 
     const category = categorizeStatus(newStatus);
-    changedStatuses.push({ name: displayName, status: newStatus, category, phase: block.phase || 'pre' });
+    const cleanStatus = extractAIColor(newStatus).text;
+    changedStatuses.push({ name: displayName, status: cleanStatus, category, phase: block.phase || 'pre' });
   }
 
   if (changedStatuses.length === 0) {
@@ -360,7 +362,9 @@ function formatUpdateText(
       const importantBlocks: string[] = [];
 
       for (const s of phaseStatuses) {
-        lines.push(`${num}. ${marker(s.category)}${s.name}\n${s.status}`);
+        // Правило: если согласовано — только "Согласовано", без доп. комментариев
+        const displayStatus = s.category === 'approved' ? '- Согласовано' : s.status;
+        lines.push(`${num}. ${marker(s.category)}${s.name}\n${displayStatus}`);
         num++;
 
         if (s.category === 'important') {

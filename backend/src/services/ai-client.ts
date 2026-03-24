@@ -99,6 +99,19 @@ export class AIServiceClient {
     }
   }
 
+  static async resolveProject(message: string, projects: string[]): Promise<number> {
+    try {
+      const response = await axios.post(`${AI_SERVICE_URL}/resolve/project`, {
+        message,
+        projects
+      }, { timeout: 10000 });
+      return response.data.index; // 1-based, 0 = not determined
+    } catch (error) {
+      logger.error('Error resolving project:', error);
+      return 0;
+    }
+  }
+
   static async classifyDashboardStatuses(blocks: Array<{
     name: string;
     status: string;
