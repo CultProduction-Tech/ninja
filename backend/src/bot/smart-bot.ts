@@ -211,6 +211,22 @@ function findProjectByFuzzy(message: string, projects: any[]): any | undefined {
   return bestMatch;
 }
 
+// Мета-вопросы о текущем проекте: "это из какого проекта?", "по какому проекту?", "какой это проект?"
+// Не путать с переключением проекта или запросом списка проектов
+function isMetaProjectQuestion(message: string): boolean {
+  const msg = message.toLowerCase().replace(/[?!.]+/g, '').trim();
+  const metaPatterns = [
+    /(?:это\s+)?(?:из\s+)?какого\s+проект/,
+    /(?:это\s+)?(?:по\s+)?каком[уы]\s+проект/,
+    /какой\s+(?:это\s+)?проект/,
+    /(?:это\s+)?(?:что\s+за|что\s+это\s+за)\s+проект/,
+    /(?:из|по|для|про)\s+какого\s+(?:это\s+)?проект/,
+    /(?:а\s+)?(?:это\s+)?(?:чей|чьи|чья)\s+проект/,
+    /(?:а\s+)?(?:это\s+)?(?:к\s+какому|к\s+чьему)\s+проект/,
+  ];
+  return metaPatterns.some(p => p.test(msg));
+}
+
 function isManualStatusFresh(manual: { status: string; changedAt: string } | undefined): boolean {
   if (!manual || manual.status === 'Не определён') return false;
   const ageDays = (Date.now() - new Date(manual.changedAt).getTime()) / 86400000;
@@ -2570,6 +2586,27 @@ export class SmartBot {
               logger.info(`Context set from reply: project ${project.project_id} (${projectName})`);
             }
           }
+        }
+      }
+
+      // Мета-вопрос ("это из какого проекта?") — отвечаем из текущего контекста, не ищем проект
+      if (isMetaProjectQuestion(userMessage)) {
+        if (context && (Date.now() - context.timestamp) < CONTEXT_TTL) {
+          const project = await SupabaseClient.getProject(context.projectId);
+          const projectName = project?.project_name || `#${context.projectId}`;
+          logger.info(`Meta-question detected: "${userMessage}" → answering with current context: ${projectName}`);
+          await ctx.reply(`Это по проекту «${projectName}».`);
+          return;
+        } else {
+          logger.info(`Meta-question detected: "${userMessage}" → no active project context`);
+          if (userProjects && userProjects.length > 0) {
+            const list = userProjects.map((p: any, i: number) => `${i + 1}. ${p.project_name}`).join('\n');
+            this.userProjectMap.set(userId, userProjects);
+            await ctx.reply(`Сейчас нет активного контекста проекта. Ваши проекты:\n\n${list}\n\n💡 Напишите название или номер проекта.`);
+          } else {
+            await ctx.reply('Сейчас нет активного контекста проекта.');
+          }
+          return;
         }
       }
 
