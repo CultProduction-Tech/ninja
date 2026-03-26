@@ -3,8 +3,8 @@ import { logger } from '../utils/logger';
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
 
-const DEFAULT_TIMEOUT = 120000;
-const LONG_TIMEOUT = 300000;
+const DEFAULT_TIMEOUT = 100000;  // 100s (Python LLM timeout = 90s)
+const LONG_TIMEOUT = 120000;    // 120s
 
 export class AIServiceClient {
   static async chatWithContext(params: {

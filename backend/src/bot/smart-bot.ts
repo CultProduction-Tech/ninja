@@ -13,10 +13,10 @@ import {
 } from '../shared/block-registry';
 
 const MANUAL_STATUS_MAX_AGE_DAYS = 3;
+const CACHE_MAX_AGE_HOURS = 4;
 
 // Получить статусы блоков — из кеша или запустить AI-анализ
 async function getOrAnalyzeStatuses(projectId: number, projectName: string, activeBlocks: any[]): Promise<any[]> {
-  const CACHE_MAX_AGE_HOURS = 4;
   let allStatuses = await SupabaseClient.getCustomBlockStatuses(projectId);
 
   // Проверяем: блоки без статуса ИЛИ со старым кэшем (> 4 часов)
@@ -242,13 +242,20 @@ const ORDINALS: Record<string, number> = {
 
 function parseOrdinalNumber(text: string): number | null {
   const lower = text.toLowerCase();
-  // Цифровой номер: "проект 3", "номер 3", "#3", "3 проект"
+
+  // 1. Цифровой номер: "проект 3", "номер 3", "#3", "3 проект"
   const numMatch = lower.match(/(?:проект|номер|#)\s*(?:номер\s*)?(\d+)/) || lower.match(/(\d+)\s*(?:проект|номер)/);
   if (numMatch) return parseInt(numMatch[1], 10);
-  // Порядковые: "по первому", "давай второй", "третий проект"
+
+  // 2. Прямое указание цифры: "по 1", "1", "а по 2", "ну по 3", "давай по 2"
+  const directMatch = lower.match(/^(?:(?:а|и|ну|ок|да|ладно|давай|хорошо|а\s+что)\s+)*(?:по\s+)?(\d+)$/);
+  if (directMatch) return parseInt(directMatch[1], 10);
+
+  // 3. Порядковые словами: "по первому", "давай второй", "третий проект"
   for (const [stem, num] of Object.entries(ORDINALS)) {
     if (lower.includes(stem)) return num;
   }
+
   return null;
 }
 
@@ -2452,7 +2459,12 @@ export class SmartBot {
       const hasPendingQuestion = pendingQA && pendingQA.answer === '' && (Date.now() - pendingQA.timestamp < CONTEXT_TTL);
       const isJustProjectSelection = hasProjectNumber && !hasStatusKeyword && hasPendingQuestion;
 
-      const isAskingForStatus = !isStatusWithQuestion && !isJustProjectSelection && (hasProjectNumber || hasStatusKeyword);
+      // Если есть завершённый Q&A (с ответом) и пользователь пишет "а по 2" без слова "статус" —
+      // это follow-up к предыдущему вопросу ("дай ссылки по вк" → "а по 2" = ссылки для проекта 2)
+      const hasRecentAnswer = pendingQA && pendingQA.answer !== '' && (Date.now() - pendingQA.timestamp < CONTEXT_TTL);
+      const isFollowUpToQuestion = hasProjectNumber && !hasStatusKeyword && hasRecentAnswer;
+
+      const isAskingForStatus = !isStatusWithQuestion && !isJustProjectSelection && !isFollowUpToQuestion && (hasProjectNumber || hasStatusKeyword);
 
       if (isJustProjectSelection) {
         // Пользователь выбирает проект для предыдущего вопроса ("по первому" после "кинь ссылки")
@@ -2536,6 +2548,9 @@ export class SmartBot {
           this.userContext.set(userId, { projectId: projectsToShow[0].project_id, timestamp: Date.now() });
           logger.info(`Context set after status: project ${projectsToShow[0].project_id} (${projectsToShow[0].project_name})`);
         }
+        // Сбрасываем lastQA после показа статуса — иначе стейл-вопрос ("а рыбы?") может подхватиться
+        // при follow-up типа "а по 2" и бот ответит на старый вопрос вместо показа статуса
+        this.lastQA.delete(userId);
         return;
       }
 
@@ -2844,7 +2859,30 @@ export class SmartBot {
         }
 
         const manualStatuses = await DashboardClient.getManualStatuses(project.project_name);
+
+        // Проверяем, нужен ли AI-анализ (есть ли stale/missing блоки)
+        const cachedStatuses = await SupabaseClient.getCustomBlockStatuses(project.project_id);
+        const now = Date.now();
+        const needsAnalysis = activeBlocks.some(block => {
+          const blockKey = block.id || block.name;
+          const cached = cachedStatuses.find((s: any) => s.block_id === blockKey && s.status_analysis);
+          if (!cached) return true;
+          return (now - new Date(cached.updated_at).getTime()) / 3600000 >= CACHE_MAX_AGE_HOURS;
+        });
+
+        // Если нужен AI-анализ — показываем прогресс-сообщение
+        let progressMsg: any = null;
+        if (needsAnalysis) {
+          progressMsg = await ctx.reply(`🔍 Анализирую проект ${project.project_name}...`);
+        }
+
         const allStatuses = await getOrAnalyzeStatuses(project.project_id, project.project_name, activeBlocks);
+
+        // Удаляем прогресс-сообщение
+        if (progressMsg) {
+          try { await ctx.deleteMessage(progressMsg.message_id); } catch {}
+        }
+
         const statusMap: Record<string, string> = {};
         for (const block of activeBlocks) {
           const blockKey = block.id || block.name;
