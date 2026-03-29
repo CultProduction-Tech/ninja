@@ -552,10 +552,22 @@ export class SupabaseClient {
       .neq('status', 'finished');
 
     if (error) {
-      logger.error('Error getting all projects:', error);
-      return [];
+      logger.error('Error getting all projects with joins:', error);
+      // Fallback: простой запрос без join-ов (join может падать из-за битых FK)
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from('projects')
+        .select('*')
+        .neq('status', 'finished');
+
+      if (fallbackError) {
+        logger.error('Error getting all projects (fallback):', fallbackError);
+        return [];
+      }
+      logger.info(`getAllProjects fallback returned ${fallbackData?.length || 0} projects`);
+      return fallbackData || [];
     }
 
+    logger.info(`getAllProjects returned ${data?.length || 0} projects`);
     return data || [];
   }
 }

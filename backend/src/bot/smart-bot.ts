@@ -2447,6 +2447,7 @@ export class SmartBot {
       const userProjects = isAdmin
         ? await SupabaseClient.getAllProjects()
         : await this.getUserProjects(userId);
+      logger.info(`User ${userId}: type=${userType}, isAdmin=${isAdmin}, projects=${userProjects?.length || 0}`);
 
       let context = this.userContext.get(userId);
 
@@ -2662,11 +2663,17 @@ export class SmartBot {
         'какие еще', 'какие ещё',
         'у меня проекты', 'покажи проекты', 'мои проекты', 'сколько проектов',
       ];
-      if (projectListKeywords.some(kw => userMessage.toLowerCase().includes(kw)) && userProjects && userProjects.length > 0) {
-        const list = userProjects.map((p: any, i: number) => `${i + 1}. ${p.project_name}`).join('\n');
-        this.userProjectMap.set(userId, userProjects);
-        await ctx.reply(`📂 Ваши проекты (${userProjects.length}):\n\n${list}\n\n💡 Напишите "статус [название]" или "проект 3" для подробной информации.`);
-        return;
+      if (projectListKeywords.some(kw => userMessage.toLowerCase().includes(kw))) {
+        if (userProjects && userProjects.length > 0) {
+          const list = userProjects.map((p: any, i: number) => `${i + 1}. ${p.project_name}`).join('\n');
+          this.userProjectMap.set(userId, userProjects);
+          await ctx.reply(`📂 Ваши проекты (${userProjects.length}):\n\n${list}\n\n💡 Напишите "статус [название]" или "проект 3" для подробной информации.`);
+          return;
+        } else {
+          logger.warn(`User ${userId} asked for projects but none found (userType: ${userType})`);
+          await ctx.reply('У вас пока нет активных проектов. Если это ошибка — обратитесь к администратору Cult.');
+          return;
+        }
       }
 
       // === 4. Есть контекст проекта → классифицируем CORRECTION / PROJECT_SWITCH / GENERAL (реакции), остальное = вопрос по проекту ===
