@@ -33,7 +33,7 @@ async function getOrAnalyzeStatuses(projectId: number, projectName: string, acti
     const reason = blocksToAnalyze.length === activeBlocks.length ? 'all missing/stale' : `${blocksToAnalyze.length}/${activeBlocks.length} missing/stale`;
     logger.info(`On-demand analysis: ${reason} for project ${projectId}`);
     try {
-      const messages = await SupabaseClient.getLastMessagesForProject(projectId, 200);
+      const messages = await SupabaseClient.getLastMessagesForProject(projectId, 400);
       if (messages.length > 0) {
         const conversationText = await SupabaseClient.formatConversationWithRoles(messages);
         const analysisResults = await AIServiceClient.analyzeDynamicBlocks({
@@ -2437,7 +2437,7 @@ export class SmartBot {
   private async handleTextMessage(ctx: Context, userMessage: string) {
     const userId = ctx.from!.id.toString();
 
-    const CONTEXT_TTL = 40 * 60 * 1000; // 40 минут
+    const CONTEXT_TTL = 4 * 60 * 60 * 1000; // 4 часа — пользователи возвращаются через часы
 
     try {
       logger.info(`Smart Bot: User ${userId} sent: ${userMessage}`);
@@ -2812,11 +2812,14 @@ export class SmartBot {
       // === 5. Если вопрос явно про работу, но нет контекста проекта — спрашиваем какой проект ===
       const workKeywords = [
         'кастинг', 'монтаж', 'музык', 'сценари', 'графи', 'локаци', 'реквизит', 'костюм',
-        'съемк', 'съёмк', 'согласован', 'правк', 'ссылк', 'материал', 'драфт', 'мастер',
+        'съемк', 'съёмк', 'согласован', 'утвержд', 'правк', 'ссылк', 'материал', 'драфт', 'мастер',
         'трейлер', 'выпуск', 'ролик', 'видео', 'фото', 'ретуш', 'цветокоррекц',
         'документ', 'смет', 'акт', 'договор', 'бюджет', 'дедлайн', 'срок',
         'клиент', 'продюсер', 'режиссер', 'оператор', 'эксперт', 'блогер',
         'сложност', 'проблем', 'задерж', 'статус',
+        'заставк', 'плашк', 'графпакет', 'графический пакет',
+        'рыб', 'аниматик', 'войсовер', 'озвучк', 'титр', 'субтитр', 'дисклеймер',
+        'пэкшот', 'саб', 'декорац', 'рендер', 'превью',
       ];
       const msgLowerForWork = userMessage.toLowerCase();
       const looksLikeWorkQuestion = workKeywords.some(kw => msgLowerForWork.includes(kw));
@@ -2829,7 +2832,16 @@ export class SmartBot {
         return;
       }
 
-      // === 6. Общий AI-чат ===
+      // === 6. Если есть проекты но контекст не определён — спросить какой проект (а не болтать с AI) ===
+      if (userProjects && userProjects.length > 1) {
+        this.lastQA.set(userId, { question: userMessage, answer: '', timestamp: Date.now() });
+        const list = userProjects.map((p: any, i: number) => `${i + 1}. ${p.project_name}`).join('\n');
+        this.userProjectMap.set(userId, userProjects);
+        await ctx.reply(`По какому проекту?\n\n${list}\n\n💡 Напишите название или номер проекта.`);
+        return;
+      }
+
+      // === 7. Общий AI-чат (только если нет проектов или 1 проект без контекста) ===
       await ctx.sendChatAction('typing');
 
       const response = await AIServiceClient.chatWithContext({
